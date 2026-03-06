@@ -1,13 +1,14 @@
 #!/usr/bin/env bash
 #
-# Helper script for mini-bowling Arduino + ScoreMore development workflow
+# mini-bowling — Helper script for Arduino + ScoreMore development workflow
+# https://github.com/glenpekarcsik/mini-bowling-script
 #
 # Usage examples:
 #   mini-bowling update
 #   mini-bowling upload --Master_Test
 #   mini-bowling upload --list-sketches
 #   mini-bowling deploy --no-kill
-#   mini-bowling download 1.8.0
+#   mini-bowling download latest
 #
 
 set -euo pipefail
@@ -896,27 +897,83 @@ install_setup() {
     echo
 
     # Step 1: create directories
-    echo "Step 1/5: Creating required directories..."
+    echo "Step 1/8: Creating required directories..."
     ensure_directories
     echo
 
     # Step 2: install arduino-cli
-    echo "Step 2/5: Checking arduino-cli..."
+    echo "Step 2/8: Checking arduino-cli..."
     install_cli
     echo
 
-    # Step 3: autostart
-    echo "Step 3/5: Configuring ScoreMore autostart..."
+    # Step 3: clone or verify project directory
+    echo "Step 3/8: Arduino project directory"
+    if [[ -d "$PROJECT_DIR/.git" ]]; then
+        echo "  Project directory already exists: $PROJECT_DIR"
+        echo "  Running git pull to get latest code..."
+        git -C "$PROJECT_DIR" pull origin "$DEFAULT_GIT_BRANCH" || \
+            echo -e "  ${YELLOW}Warning: git pull failed — check network and try 'mini-bowling update' later${NC}"
+    elif [[ -d "$PROJECT_DIR" ]]; then
+        echo -e "  ${YELLOW}Directory exists but is not a git repo: $PROJECT_DIR${NC}"
+        echo "  Skipped — if this is intentional, ignore this warning."
+    else
+        echo "  Project directory not found: $PROJECT_DIR"
+        echo -n "  Enter the git repo URL to clone (or press Enter to skip): "
+        read -r repo_url
+        if [[ -n "$repo_url" ]]; then
+            local parent_dir
+            parent_dir=$(dirname "$PROJECT_DIR")
+            mkdir -p "$parent_dir"
+            git clone "$repo_url" "$PROJECT_DIR" || die "git clone failed"
+            echo -e "  ${GREEN}✓ Cloned to $PROJECT_DIR${NC}"
+        else
+            echo "  Skipped — run 'git clone <url> $PROJECT_DIR' manually before deploying."
+        fi
+    fi
+    echo
+
+    # Step 4: download ScoreMore
+    echo "Step 4/8: Download ScoreMore"
+    if [[ -L "$SYMLINK_PATH" ]] && [[ -f "$SYMLINK_PATH" ]]; then
+        local current_ver
+        current_ver=$(basename "$(readlink -f "$SYMLINK_PATH")" | \
+            sed -n "s/^ScoreMore-\\(.*\\)-${ARCH}\\.${EXTENSION}$/\\1/p")
+        echo "  ScoreMore already installed: $current_ver"
+        echo -n "  Download latest version anyway? [y/N]: "
+        read -r dl_answer
+        if [[ "${dl_answer,,}" == "y" ]]; then
+            download_scoremore_version "$(
+                curl --silent --fail --max-time 10 "https://www.scoremorebowling.com/download" | \
+                grep -oP "ScoreMore-\K[0-9]+\.[0-9]+(\.[0-9]+)?(?=-${ARCH}\.${EXTENSION})" | head -1
+            )" || echo -e "  ${YELLOW}Warning: download failed — run 'mini-bowling download latest' later${NC}"
+        fi
+    else
+        echo "  Downloading latest ScoreMore..."
+        local latest_ver
+        latest_ver=$(curl --silent --fail --max-time 10 \
+            "https://www.scoremorebowling.com/download" | \
+            grep -oP "ScoreMore-\K[0-9]+\.[0-9]+(\.[0-9]+)?(?=-${ARCH}\.${EXTENSION})" | head -1 || true)
+        if [[ -n "$latest_ver" ]]; then
+            download_scoremore_version "$latest_ver" || \
+                echo -e "  ${YELLOW}Warning: download failed — run 'mini-bowling download latest' later${NC}"
+        else
+            echo -e "  ${YELLOW}Could not determine latest version — run 'mini-bowling download latest' manually.${NC}"
+        fi
+    fi
+    echo
+
+    # Step 5: autostart
+    echo "Step 5/8: Configuring ScoreMore autostart..."
     setup_autostart
     echo
 
-    # Step 4: doctor check
-    echo "Step 4/6: Checking dependencies..."
+    # Step 6: doctor check
+    echo "Step 6/8: Checking dependencies..."
     doctor
     echo
 
-    # Step 5: watchdog
-    echo "Step 5/6: Enable ScoreMore watchdog? (restarts ScoreMore every 5 min if it crashes)"
+    # Step 7: watchdog
+    echo "Step 7/8: Enable ScoreMore watchdog? (restarts ScoreMore every 5 min if it crashes)"
     echo -n "  Enable watchdog? [Y/n]: "
     read -r wd_answer
     if [[ "${wd_answer,,}" != "n" ]]; then
@@ -926,8 +983,8 @@ install_setup() {
     fi
     echo
 
-    # Step 6: schedule
-    echo "Step 6/6: Schedule daily deploy (optional)"
+    # Step 8: schedule
+    echo "Step 8/8: Schedule daily deploy (optional)"
     echo -n "  Enter a daily deploy time in HH:MM format, or press Enter to skip: "
     read -r sched_time
     if [[ -n "$sched_time" ]]; then
@@ -942,8 +999,9 @@ install_setup() {
     echo "Next steps:"
     echo "  1. Connect the Arduino and run:  mini-bowling list"
     echo "  2. Update DEFAULT_PORT and BOARD in the script if needed"
-    echo "  3. Run a pre-flight check:       mini-bowling preflight"
-    echo "  4. Run your first deploy:        mini-bowling deploy"
+    echo "  3. Re-copy the script:           sudo cp mini-bowling /usr/bin/mini-bowling"
+    echo "  4. Run a pre-flight check:       mini-bowling preflight"
+    echo "  5. Run your first deploy:        mini-bowling deploy"
 }
 
 setup_autostart() {

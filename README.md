@@ -14,10 +14,12 @@ This script simplifies common tasks when developing and deploying code for a min
 - Compile + upload selected sketch to Arduino, then restart ScoreMore
 - Port verification before upload — errors out before killing ScoreMore if Arduino is not reachable
 - Full deploy cycle (`deploy`) — wait for network → kill → pull → upload → restart ScoreMore, with pass/fail status recorded
+- Dry-run mode — preview what a deploy would do without making any changes (`deploy --dry-run`)
 - Roll back to a previous git commit and re-upload (`rollback`)
 - Git operations with dirty-repo warning (`update`)
 - Check for remote git commits without pulling (`check-update`)
 - Upload timeout — fails cleanly if arduino-cli hangs rather than blocking forever
+- Keep the script itself up to date from GitHub (`update-script`)
 
 **ScoreMore**
 - Download a specific or latest ScoreMore version with disk space guard and integrity check (`download`)
@@ -28,7 +30,7 @@ This script simplifies common tasks when developing and deploying code for a min
 - Configure ScoreMore to auto-start on login (`setup-autostart` / `remove-autostart`)
 
 **Diagnostics & Monitoring**
-- Status overview — port, Arduino detection, ScoreMore state, autostart, watchdog, serial log, schedule, last deploy result (`status`)
+- Status overview — port, Arduino detection, ScoreMore version + state, autostart, watchdog, serial log, schedule, last deploy result (`status`)
 - Pre-flight check before deploying — 9 checks including ScoreMore and git update availability (`preflight`)
 - Dependency checker (`doctor`)
 - Arduino serial output logging to file in the background (`serial-log`)
@@ -43,6 +45,7 @@ This script simplifies common tasks when developing and deploying code for a min
 **Maintenance**
 - Config, sketch, and script backup with automatic 10-backup retention (`backup`)
 - Disk cleanup — old AppImages, build caches, and logs (`disk-cleanup`)
+- Manual log deletion with confirmation prompt (`logs clean`)
 - Logging of all output to daily log files with 30-day automatic retention
 - Required directories created automatically on first run
 - Guided first-time setup wizard (`install`)
@@ -174,11 +177,11 @@ sudo cp mini-bowling.sh /usr/bin/mini-bowling.sh
 | Command | Description | Options / Arguments | Example Usage |
 |---|---|---|---|
 | `version` | Show script version, install path, last-modified date, and shell version | — | `mini-bowling.sh version` |
-| `status` | Show port, Arduino detection, ScoreMore state, watchdog, serial log, schedule, and last deploy result | — | `mini-bowling.sh status` |
+| `status` | Show port, Arduino detection, ScoreMore version + state, watchdog, serial log, schedule, and last deploy result | — | `mini-bowling.sh status` |
 | `install` | Guided 8-step setup wizard (directories, arduino-cli, git clone, ScoreMore download, autostart, doctor, watchdog, schedule) | — | `mini-bowling.sh install` |
 | `preflight` | Run 9 pre-deploy checks — Arduino, network, disk, CPU temp, git state, symlink, remote updates, ScoreMore version | — | `mini-bowling.sh preflight` |
 | `doctor` | Check all required and optional dependencies are installed | — | `mini-bowling.sh doctor` |
-| `deploy` | Wait for network → pull latest → kill ScoreMore → upload `Everything` → restart ScoreMore | `--no-kill` \| `-k` \| `--branch <n>` | `mini-bowling.sh deploy` |
+| `deploy` | Wait for network → pull latest → kill ScoreMore → upload `Everything` → restart ScoreMore | `--no-kill` \| `-k` \| `--branch <n>` \| `--dry-run` | `mini-bowling.sh deploy` |
 | `upload` | Compile + upload sketch → restart ScoreMore (default: `Everything`) | `--FolderName` \| `--list-sketches` \| `--branch <n>` \| `--no-kill` | `mini-bowling.sh upload --Master_Test` |
 | `upload --list-sketches` | List all subfolders containing at least one `*.ino` file | — | `mini-bowling.sh upload --list-sketches` |
 | `update` | `git pull` latest changes (warns if repo is dirty) | — | `mini-bowling.sh update` |
@@ -203,6 +206,8 @@ sudo cp mini-bowling.sh /usr/bin/mini-bowling.sh
 | `logs follow` | Live tail of today's log (Ctrl+C to exit) | — | `mini-bowling.sh logs follow` |
 | `logs dump` | Print full contents of today's log | — | `mini-bowling.sh logs dump` |
 | `logs tail` | Print last N lines of today's log | `[N]` (default: 50) | `mini-bowling.sh logs tail 100` |
+| `logs clean` | Delete all log files (asks for confirmation) | — | `mini-bowling.sh logs clean` |
+| `update-script` | Pull latest version of `mini-bowling.sh` from GitHub and reinstall | — | `mini-bowling.sh update-script` |
 | `backup` | Archive sketches, ScoreMore config, and script to a timestamped file (keeps last 10) | — | `mini-bowling.sh backup` |
 | `disk-cleanup` | Remove old AppImages, Arduino build caches, and logs older than 30 days | — | `mini-bowling.sh disk-cleanup` |
 | `pi-status` | Show CPU temperature, memory usage, disk space, and uptime | — | `mini-bowling.sh pi-status` |
@@ -221,6 +226,9 @@ sudo cp mini-bowling.sh /usr/bin/mini-bowling.sh
 
 # Check everything is ready before deploying
 mini-bowling.sh preflight
+
+# Preview what deploy would do without making any changes
+mini-bowling.sh deploy --dry-run
 
 # Full deploy — pull latest code, upload Everything, restart ScoreMore
 mini-bowling.sh deploy
@@ -294,6 +302,12 @@ mini-bowling.sh backup
 # Free up SD card space
 mini-bowling.sh disk-cleanup
 
+# Delete all log files
+mini-bowling.sh logs clean
+
+# Update the script itself from GitHub
+mini-bowling.sh update-script
+
 # ── Setup & configuration ─────────────────────────────────────────────────────
 
 # First-time setup wizard
@@ -323,7 +337,7 @@ mini-bowling.sh status
 
 ## Deploy Cycle
 
-Running `mini-bowling.sh deploy` executes this sequence:
+Run `mini-bowling.sh deploy --dry-run` first to preview what will happen without making any changes. Then run `mini-bowling.sh deploy` to execute the full sequence:
 
 1. Wait for network (up to 60 seconds — handles slow boot on Pi)
 2. Warn if local git repo has uncommitted changes
@@ -348,6 +362,39 @@ Last deploy : FAILED (started 2026-03-06 02:30:01)
 ```
 
 If the deploy fails partway through, `FAILED` is written immediately via a shell error trap — so you always know if something went wrong overnight without having to dig through logs.
+
+## Deploy Dry Run
+
+`mini-bowling.sh deploy --dry-run` shows exactly what a deploy would do without making any changes — no git pull, no upload, no ScoreMore restart:
+
+```
+--- DRY RUN — no changes will be made ---
+
+  ✓  Network reachable
+  ✎  Local commit : abc1234 Fix pin assignment for lane 3
+  ✎  Remote ahead : 2 commit(s)
+  ✎  Repo state   : clean
+  ✓  Arduino port: /dev/ttyACM0 (recognised)
+  ✎  ScoreMore is running (pid 82131) — will be killed before upload
+  ✓  Sketch found: Everything
+  ✓  Disk space: 4823MB free
+
+Dry run complete — no changes made. Run without --dry-run to deploy.
+```
+
+Useful before a scheduled deploy window or when troubleshooting a machine you can't be physically present at.
+
+## Updating the Script
+
+To update `mini-bowling.sh` itself to the latest version from GitHub:
+
+```bash
+mini-bowling.sh update-script
+```
+
+This clones the script repo to `~/.local/share/mini-bowling-script` on first run, then `git pull`s on subsequent runs. If the installed script is in `/usr/bin` or `/usr/local/bin`, `sudo cp` is used automatically. After updating, run `mini-bowling.sh version` to confirm the new version is installed.
+
+If the script is already up to date it reports so without making any changes.
 
 ## Rollback
 
@@ -475,7 +522,7 @@ Warnings (`!`) are non-blocking. Failures (`✗`) should be resolved before depl
 All commands that do real work log their output to a daily file in `~/Documents/Bowling/logs/`:
 
 ```
-~/Documents/Bowling/logs/mini-bowling.sh-2026-03-06.log
+~/Documents/Bowling/logs/mini-bowling-2026-03-06.log
 ```
 
 Each run is separated by a timestamped header. Log files older than 30 days are pruned automatically.
@@ -485,6 +532,7 @@ mini-bowling.sh logs           # list log files
 mini-bowling.sh logs follow    # live tail
 mini-bowling.sh logs dump      # full output
 mini-bowling.sh logs tail 100  # last 100 lines
+mini-bowling.sh logs clean     # delete all log files (asks for confirmation)
 ```
 
 Read-only commands are not logged: `status`, `list`, `logs`, `version`, `pi-status`, `wifi-status`, `doctor`, `preflight`, `scoremore-version`, `scoremore-history`, `check-update`, `check-scoremore-update`, `serial-log`, `setup-watchdog`, `watchdog`, and `wait-for-network`.
@@ -511,7 +559,7 @@ mini-bowling.sh wifi-status    # interface, IP, SSID, signal, internet reachabil
 
 ```bash
 mini-bowling.sh backup
-# → ~/Documents/Bowling/backups/mini-bowling.sh-backup-2026-03-06_14-30-00.tar.gz
+# → ~/Documents/Bowling/backups/mini-bowling-backup-2026-03-06_14-30-00.tar.gz
 ```
 
 SD cards on Raspberry Pis can fail without warning — run `backup` before major changes.
@@ -574,7 +622,7 @@ Folder names are used as the sketch identifier (`--FolderName`). Only direct sub
 | `~/Documents/Bowling/ScoreMore/ScoreMore-<ver>-arm64.AppImage` | Downloaded AppImages |
 | `~/Desktop/ScoreMore.AppImage` | Symlink to active AppImage |
 | `~/.config/autostart/scoremore.desktop` | XDG autostart entry (when enabled) |
-| `~/Documents/Bowling/logs/mini-bowling.sh-YYYY-MM-DD.log` | Daily command logs |
+| `~/Documents/Bowling/logs/mini-bowling-YYYY-MM-DD.log` | Daily command logs |
 | `~/Documents/Bowling/logs/arduino-serial-YYYY-MM-DD.log` | Arduino serial log |
 | `~/Documents/Bowling/logs/.last-deploy-status` | Last deploy pass/fail record |
-| `~/Documents/Bowling/backups/mini-bowling.sh-backup-*.tar.gz` | Backups |
+| `~/Documents/Bowling/backups/mini-bowling-backup-*.tar.gz` | Backups |

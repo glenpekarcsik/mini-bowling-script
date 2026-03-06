@@ -20,6 +20,7 @@ IFS=$'\n\t'
 
 readonly DEFAULT_GIT_BRANCH="main"
 readonly SCRIPT_VERSION="1.0.0"
+readonly SCRIPT_REPO="https://github.com/glenpekarcsik/mini-bowling-script.git"
 readonly PROJECT_DIR="${MINI_BOWLING_DIR:-$HOME/Documents/Bowling/Arduino/mini-bowling}"
 readonly DEFAULT_PORT="/dev/ttyACM0"
 readonly BOARD="arduino:avr:mega"
@@ -117,9 +118,10 @@ show_logs() {
             done
             echo
             echo "Commands:"
-            echo "  mini-bowling logs follow        live follow today's log"
-            echo "  mini-bowling logs dump          full output of today's log"
-            echo "  mini-bowling logs tail [N]      last N lines of today's log (default: 50)"
+            echo "  mini-bowling.sh logs follow        live follow today's log"
+            echo "  mini-bowling.sh logs dump          full output of today's log"
+            echo "  mini-bowling.sh logs tail [N]      last N lines of today's log (default: 50)"
+            echo "  mini-bowling.sh logs clean         delete all log files"
             ;;
 
         follow)
@@ -145,8 +147,39 @@ show_logs() {
             tail -n "$n" "$today_log"
             ;;
 
+        clean)
+            if [[ ! -d "$LOG_DIR" ]]; then
+                echo "Log directory not found: $LOG_DIR"
+                return 0
+            fi
+            local log_files
+            mapfile -t log_files < <(find "$LOG_DIR" -maxdepth 1 -name "mini-bowling-*.log" 2>/dev/null | sort)
+            if [[ ${#log_files[@]} -eq 0 ]]; then
+                echo "No log files to remove."
+                return 0
+            fi
+            local total_kb=0
+            for f in "${log_files[@]}"; do
+                local kb
+                kb=$(du -k "$f" | cut -f1)
+                total_kb=$(( total_kb + kb ))
+            done
+            echo "This will remove ${#log_files[@]} log file(s) ($(( total_kb / 1024 ))MB total)."
+            echo -n "Are you sure? [y/N]: "
+            read -r confirm
+            if [[ "${confirm,,}" != "y" ]]; then
+                echo "Cancelled."
+                return 0
+            fi
+            for f in "${log_files[@]}"; do
+                rm -f -- "$f"
+            done
+            rm -f "$DEPLOY_STATUS_FILE" 2>/dev/null || true
+            echo -e "${GREEN}✓ Removed ${#log_files[@]} log file(s) and deploy status record${NC}"
+            ;;
+
         *)
-            die "Unknown logs subcommand: '$subcmd' — use list, follow, dump, or tail [N]"
+            die "Unknown logs subcommand: '$subcmd' — use list, follow, dump, tail [N], or clean"
             ;;
     esac
 }
@@ -261,7 +294,16 @@ print_status() {
     local sm_pid
     sm_pid=$(pgrep -f "ScoreMore.AppImage" 2>/dev/null | head -1 || true)
     if [[ -n "$sm_pid" ]]; then
-        echo "ScoreMore   : running (pid $sm_pid)"
+        local sm_ver=""
+        if [[ -L "$SYMLINK_PATH" ]]; then
+            sm_ver=$(basename "$(readlink -f "$SYMLINK_PATH" 2>/dev/null)" | \
+                sed -n "s/^ScoreMore-\\(.*\\)-${ARCH}\\.${EXTENSION}$/\\1/p")
+        fi
+        if [[ -n "$sm_ver" ]]; then
+            echo "ScoreMore   : running v${sm_ver} (pid $sm_pid)"
+        else
+            echo "ScoreMore   : running (pid $sm_pid)"
+        fi
     else
         echo "ScoreMore   : not running"
     fi
@@ -546,12 +588,14 @@ cmd_compile_and_upload() {
 cmd_deploy() {
     local kill_app=true
     local branch=""
+    local dry_run=false
 
     while [[ $# -gt 0 ]]; do
         case "$1" in
             --no-kill|-k)   kill_app=false; shift ;;
             --branch=*)     branch="${1#--branch=}"; shift ;;
             --branch)       shift; branch="${1?Missing branch name}"; shift ;;
+            --dry-run)      dry_run=true; shift ;;
             *)              break ;;
         esac
     done
@@ -561,6 +605,77 @@ cmd_deploy() {
         echo -e "${GREEN}Deploying from default branch:${NC} $branch"
     else
         echo -e "${YELLOW}Deploying from specified branch:${NC} $branch"
+    fi
+
+    if $dry_run; then
+        echo -e "${YELLOW}--- DRY RUN — no changes will be made ---${NC}"
+        echo
+
+        # Network check
+        if ping -c 1 -W 3 8.8.8.8 >/dev/null 2>&1; then
+            echo -e "  ${GREEN}✓${NC}  Network reachable"
+        else
+            echo -e "  ${RED}✗${NC}  No network connection"
+        fi
+
+        # Git status
+        if [[ -d "$PROJECT_DIR/.git" ]]; then
+            git -C "$PROJECT_DIR" fetch --quiet origin "$branch" 2>/dev/null || true
+            local behind dirty
+            behind=$(git -C "$PROJECT_DIR" rev-list HEAD..origin/"$branch" --count 2>/dev/null || echo "?")
+            if git -C "$PROJECT_DIR" diff --quiet && git -C "$PROJECT_DIR" diff --cached --quiet; then
+                dirty="clean"
+            else
+                dirty="uncommitted local changes"
+            fi
+            echo "  ✎  Local commit : $(git -C "$PROJECT_DIR" log --oneline -1 HEAD)"
+            echo "  ✎  Remote ahead : $behind commit(s)"
+            echo "  ✎  Repo state   : $dirty"
+        else
+            echo -e "  ${YELLOW}!${NC}  Project directory is not a git repo: $PROJECT_DIR"
+        fi
+
+        # Arduino port
+        local port
+        port=$(find_arduino_port 2>/dev/null || true)
+        if [[ -n "$port" ]] && arduino-cli board list 2>/dev/null | grep -q "$port"; then
+            echo -e "  ${GREEN}✓${NC}  Arduino port: $port (recognised)"
+        elif [[ -n "$port" ]]; then
+            echo -e "  ${YELLOW}!${NC}  Arduino port: $port (not recognised by arduino-cli)"
+        else
+            echo -e "  ${RED}✗${NC}  No Arduino port found"
+        fi
+
+        # ScoreMore state
+        local sm_pid
+        sm_pid=$(pgrep -f "ScoreMore.AppImage" 2>/dev/null | head -1 || true)
+        if [[ -n "$sm_pid" ]]; then
+            echo "  ✎  ScoreMore is running (pid $sm_pid) — will be killed before upload"
+        else
+            echo "  ✎  ScoreMore is not running"
+        fi
+
+        # Sketch
+        local sketch_path="$PROJECT_DIR/Everything"
+        if [[ -d "$sketch_path" ]] && find "$sketch_path" -maxdepth 1 -iname "*.ino" -print -quit 2>/dev/null | grep -q .; then
+            echo -e "  ${GREEN}✓${NC}  Sketch found: Everything"
+        else
+            echo -e "  ${RED}✗${NC}  Sketch not found: $sketch_path"
+        fi
+
+        # Disk space
+        local avail_kb avail_mb
+        avail_kb=$(df -k "$HOME" | awk 'NR==2 {print $4}')
+        avail_mb=$(( avail_kb / 1024 ))
+        if (( avail_kb >= 512000 )); then
+            echo -e "  ${GREEN}✓${NC}  Disk space: ${avail_mb}MB free"
+        else
+            echo -e "  ${RED}✗${NC}  Low disk space: ${avail_mb}MB free"
+        fi
+
+        echo
+        echo -e "${YELLOW}Dry run complete — no changes made. Run without --dry-run to deploy.${NC}"
+        return 0
     fi
 
     # Item 5: write status file on exit (success or failure)
@@ -635,9 +750,58 @@ wait_for_network() {
     echo -e "${GREEN}→ Network available${NC}"
 }
 
+update_script() {
+    local script_path
+    script_path=$(command -v mini-bowling.sh 2>/dev/null) || script_path=$(realpath "$0")
+
+    echo "Current version : $SCRIPT_VERSION"
+    echo "Script path     : $script_path"
+    echo
+
+    # Find or create a local clone of the script repo to pull from
+    local script_repo_dir="$HOME/.local/share/mini-bowling-script"
+
+    if [[ -d "$script_repo_dir/.git" ]]; then
+        echo "→ Fetching latest from $SCRIPT_REPO..."
+        git -C "$script_repo_dir" fetch --quiet origin main || \
+            die "git fetch failed — is the network available?"
+
+        local behind
+        behind=$(git -C "$script_repo_dir" rev-list HEAD..origin/main --count 2>/dev/null || echo 0)
+        if [[ "$behind" -eq 0 ]]; then
+            echo -e "${GREEN}✓ Already up to date${NC}"
+            return 0
+        fi
+        echo "→ $behind new commit(s) available — pulling..."
+        git -C "$script_repo_dir" pull --quiet origin main || die "git pull failed"
+    else
+        echo "→ Cloning script repo..."
+        mkdir -p "$(dirname "$script_repo_dir")"
+        git clone --quiet "$SCRIPT_REPO" "$script_repo_dir" || die "git clone failed"
+    fi
+
+    local new_script="$script_repo_dir/mini-bowling.sh"
+    [[ -f "$new_script" ]] || die "mini-bowling.sh not found in repo at $new_script"
+
+    local new_version
+    new_version=$(grep -m1 'SCRIPT_VERSION=' "$new_script" | sed 's/.*SCRIPT_VERSION="//;s/".*//' || echo "unknown")
+
+    echo "→ Installing version $new_version to $script_path..."
+    chmod +x "$new_script"
+
+    if [[ "$script_path" == /usr/bin/* ]] || [[ "$script_path" == /usr/local/bin/* ]]; then
+        sudo cp "$new_script" "$script_path" || die "sudo cp failed — do you have sudo access?"
+    else
+        cp "$new_script" "$script_path" || die "cp failed"
+    fi
+
+    echo -e "${GREEN}✓ Updated: $SCRIPT_VERSION → $new_version${NC}"
+    echo "  Run 'mini-bowling.sh version' to confirm."
+}
+
 script_version() {
     local script_path
-    script_path=$(command -v mini-bowling 2>/dev/null) || script_path=$(realpath "$0")
+    script_path=$(command -v mini-bowling.sh 2>/dev/null) || script_path=$(realpath "$0")
 
     echo "mini-bowling version : $SCRIPT_VERSION"
     echo "Script path          : $script_path"
@@ -1787,7 +1951,7 @@ Available commands:
   update                git pull latest main branch
   upload [--FolderName | --list-sketches] [--branch <n>] [--no-kill]
                         Compile + upload sketch → restart ScoreMore (default: Everything)
-  deploy [--no-kill] [--branch <n>]
+  deploy [--no-kill] [--branch <n>] [--dry-run]
                         Pull → upload Everything → restart ScoreMore (default branch: main)
   download <version>    Download + restart ScoreMore (e.g. 1.8.0 or 'latest')
   start-scoremore       Start ScoreMore AppImage
@@ -1797,8 +1961,9 @@ Available commands:
   unschedule-deploy     Remove the scheduled daily deploy
   console               Arduino serial monitor (Ctrl+C to exit)
   list                  arduino-cli board list
-  logs [list|follow|dump|tail [N]]
-                        List log files, or view today's log (default: list)
+  logs [list|follow|dump|tail [N]|clean]
+                        List log files, view today's log, or delete all logs (default: list)
+  update-script         Pull latest version of mini-bowling.sh from GitHub
   create-dir            Create required directories
   install-cli           Install arduino-cli if missing
   install               Guided first-time setup wizard
@@ -1833,9 +1998,12 @@ Examples:
   mini-bowling upload --list-sketches
   mini-bowling upload --Everything
   mini-bowling upload --Master_Test --branch feature/new-sensor
-  mini-bowling deploy
-  mini-bowling deploy --no-kill
-  mini-bowling deploy --branch testing
+  mini-bowling.sh deploy --dry-run
+  mini-bowling.sh deploy
+  mini-bowling.sh deploy --no-kill
+  mini-bowling.sh deploy --branch testing
+  mini-bowling.sh update-script
+  mini-bowling.sh logs clean
   mini-bowling download 1.8.0
   mini-bowling download latest
   mini-bowling setup-autostart
@@ -2084,6 +2252,9 @@ _dispatch() {
             ;;
         logs)
             show_logs "$@"
+            ;;
+        update-script)
+            update_script
             ;;
         *)
             echo "Unknown command: $cmd" >&2

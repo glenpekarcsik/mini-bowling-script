@@ -570,7 +570,6 @@ cmd_compile_and_upload() {
     command -v timeout >/dev/null 2>&1 && timeout_cmd="timeout 120"
 
     arduino-cli compile --upload \
-    #$timeout_cmd arduino-cli compile --upload \
         --port "$port" \
         --fqbn "$BOARD" \
         "$sketch_path" || {
@@ -1301,7 +1300,6 @@ cmd_rollback() {
     command -v timeout >/dev/null 2>&1 && timeout_cmd="timeout 120"
 
     arduino-cli compile --upload \
-    #$timeout_cmd arduino-cli compile --upload \
         --port "$port" \
         --fqbn "$BOARD" \
         "${PROJECT_DIR}/Everything" || {

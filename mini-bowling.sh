@@ -224,19 +224,11 @@ verify_arduino_port() {
 
     echo "→ Verifying Arduino on $port..."
 
-    # arduino-cli board list exits 0 even when nothing is found, so check output
-    local board_output
-    board_output=$(arduino-cli board list 2>/dev/null) || \
-        die "arduino-cli board list failed — is arduino-cli installed and configured?"
-
-    if ! echo "$board_output" | grep -q "$port"; then
-        echo -e "${RED}Error:${NC} Port $port is not recognised by arduino-cli."
-        echo
-        echo "Current arduino-cli board list output:"
-        echo "$board_output"
-        echo
-        echo "Check that the Arduino is connected and try: mini-bowling list"
-        exit 1
+    # Check the port device actually exists — that's all we need to proceed.
+    # arduino-cli board list often fails to identify the board type even when
+    # the port is perfectly usable (e.g. unrecognised VID/PID, missing index).
+    if [[ ! -c "$port" ]]; then
+        die "Port $port does not exist — is the Arduino connected and the cable data-capable?"
     fi
 
     echo -e "${GREEN}→ Arduino detected on $port${NC}"
@@ -639,10 +631,8 @@ cmd_deploy() {
         # Arduino port
         local port
         port=$(find_arduino_port 2>/dev/null || true)
-        if [[ -n "$port" ]] && arduino-cli board list 2>/dev/null | grep -q "$port"; then
-            echo -e "  ${GREEN}✓${NC}  Arduino port: $port (recognised)"
-        elif [[ -n "$port" ]]; then
-            echo -e "  ${YELLOW}!${NC}  Arduino port: $port (not recognised by arduino-cli)"
+        if [[ -n "$port" ]] && [[ -c "$port" ]]; then
+            echo -e "  ${GREEN}✓${NC}  Arduino port: $port"
         else
             echo -e "  ${RED}✗${NC}  No Arduino port found"
         fi
@@ -950,15 +940,8 @@ preflight() {
     # 2. Arduino port reachable
     local port
     port=$(find_arduino_port) || true
-    if [[ -n "$port" ]]; then
+    if [[ -n "$port" ]] && [[ -c "$port" ]]; then
         echo -e "  ${GREEN}✓${NC}  Arduino port found: $port"
-        # Also check arduino-cli recognises it
-        if arduino-cli board list 2>/dev/null | grep -q "$port"; then
-            echo -e "  ${GREEN}✓${NC}  Arduino recognised by arduino-cli"
-        else
-            echo -e "  ${YELLOW}!${NC}  Arduino port exists but not recognised by arduino-cli"
-            all_ok=false
-        fi
     else
         echo -e "  ${RED}✗${NC}  No Arduino serial port found"
         all_ok=false

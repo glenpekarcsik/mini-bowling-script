@@ -597,6 +597,8 @@ The unit tests cover: syntax validation, `version` output, unknown command handl
 
 The test script works by sourcing `mini-bowling.sh` with `MINI_BOWLING_SOURCED=1`, which suppresses `main()` execution and allows individual functions to be called and tested in isolation. Hardware-touching functions (`arduino-cli`, `kill_scoremore_gracefully`, etc.) are replaced with lightweight mocks for unit tests.
 
+**Important:** the test runs against the `mini-bowling.sh` in the same directory as `mini-bowling-test.sh`. Make sure you copy the latest version of the script into your repo directory before running tests — the test won't pick up the copy installed at `/usr/bin/mini-bowling.sh`.
+
 Run the unit tests after making any change to the script to confirm nothing is broken before deploying to the Pi.
 
 ## Script Version

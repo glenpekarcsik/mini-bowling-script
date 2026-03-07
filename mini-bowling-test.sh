@@ -341,14 +341,36 @@ sed \
     -e "s|readonly DEPLOY_STATUS_FILE=.*|DEPLOY_STATUS_FILE='$FAKE_LOG_DIR/.last-deploy-status'|" \
     "$SCRIPT" > "$_PATCHED"
 
-run bash -c "MINI_BOWLING_SOURCED=1 source '$_PATCHED' 2>/dev/null; show_logs list" 2>/dev/null
+# Use runner scripts instead of bash -c strings to avoid quoting/pipe issues
+_LOG_LIST_RUNNER="$(tmpdir)/log_list.sh"
+cat > "$_LOG_LIST_RUNNER" << LOGEOF
+#!/usr/bin/env bash
+MINI_BOWLING_SOURCED=1 source "$_PATCHED" 2>/dev/null
+show_logs list
+LOGEOF
+
+_LOG_BAD_RUNNER="$(tmpdir)/log_bad.sh"
+cat > "$_LOG_BAD_RUNNER" << LOGEOF
+#!/usr/bin/env bash
+MINI_BOWLING_SOURCED=1 source "$_PATCHED" 2>/dev/null
+show_logs badsubcmd 2>&1 || exit 1
+LOGEOF
+
+_LOG_CLEAN_RUNNER="$(tmpdir)/log_clean.sh"
+cat > "$_LOG_CLEAN_RUNNER" << LOGEOF
+#!/usr/bin/env bash
+MINI_BOWLING_SOURCED=1 source "$_PATCHED" 2>/dev/null
+echo y | show_logs clean
+LOGEOF
+
+run bash "$_LOG_LIST_RUNNER"
 assert_exit "logs list exits 0" 0
 assert_output_contains "logs list shows log files" "mini-bowling-"
 
-run bash -c "MINI_BOWLING_SOURCED=1 source '$_PATCHED' 2>/dev/null; show_logs badsubcmd" 2>/dev/null
+run bash "$_LOG_BAD_RUNNER"
 assert_nonzero "logs with bad subcommand exits non-zero"
 
-run bash -c "MINI_BOWLING_SOURCED=1 source '$_PATCHED' 2>/dev/null; show_logs clean <<< 'y'" 2>/dev/null
+run bash "$_LOG_CLEAN_RUNNER"
 assert_exit "logs clean with 'y' exits 0" 0
 assert_file_not_exists "logs clean removes log files" "$FAKE_LOG_DIR/mini-bowling-2026-01-01.log"
 
@@ -401,18 +423,21 @@ suite "serial-log conflict guard"
 FAKE_PID_FILE="$(tmpdir)/mini-bowling-serial.pid"
 echo "$$" > "$FAKE_PID_FILE"   # use current PID — it definitely exists
 
-run bash -c "
-    MINI_BOWLING_SOURCED=1 source '$SCRIPT' 2>/dev/null
-    find_arduino_port() { echo '/dev/ttyACM0'; }
-    # Patch the pid file path
-    show_console() {
-        local pid_file='$FAKE_PID_FILE'
-        if [[ -f \"\$pid_file\" ]] && kill -0 \"\$(cat \"\$pid_file\")\" 2>/dev/null; then
-            die \"Serial logging is already running\"
-        fi
-    }
-    show_console
-" 2>/dev/null
+_CONSOLE_RUNNER="$(tmpdir)/console_test.sh"
+cat > "$_CONSOLE_RUNNER" << CONSEOF
+#!/usr/bin/env bash
+MINI_BOWLING_SOURCED=1 source "$SCRIPT" 2>/dev/null
+find_arduino_port() { echo '/dev/ttyACM0'; }
+show_console() {
+    local pid_file="$FAKE_PID_FILE"
+    if [[ -f "\$pid_file" ]] && kill -0 "\$(cat "\$pid_file")" 2>/dev/null; then
+        die "Serial logging is already running"
+    fi
+}
+show_console
+CONSEOF
+
+run bash "$_CONSOLE_RUNNER"
 assert_exit "console blocked when serial-log active" 1
 assert_output_contains "console error mentions serial-log" "Serial logging"
 
@@ -442,7 +467,14 @@ sed \
 suite "scoremore_history — list with no AppImages"
 # ─────────────────────────────────────────────────────────────────────────────
 
-run bash -c "MINI_BOWLING_SOURCED=1 source '$_PATHS_PATCHED' 2>/dev/null; scoremore_history list"
+_SM_HIST_RUNNER="$(tmpdir)/sm_hist.sh"
+cat > "$_SM_HIST_RUNNER" << SMEOF
+#!/usr/bin/env bash
+MINI_BOWLING_SOURCED=1 source "$_PATHS_PATCHED" 2>/dev/null
+scoremore_history list
+SMEOF
+
+run bash "$_SM_HIST_RUNNER"
 assert_exit "scoremore-history list with no files exits 0" 0
 assert_output_contains "scoremore-history says no versions" "No "
 
@@ -450,7 +482,14 @@ assert_output_contains "scoremore-history says no versions" "No "
 suite "disk_cleanup — dry run of path construction"
 # ─────────────────────────────────────────────────────────────────────────────
 
-run bash -c "MINI_BOWLING_SOURCED=1 source '$_PATHS_PATCHED' 2>/dev/null; disk_cleanup"
+_DISK_RUNNER="$(tmpdir)/disk_cleanup.sh"
+cat > "$_DISK_RUNNER" << DISKEOF
+#!/usr/bin/env bash
+MINI_BOWLING_SOURCED=1 source "$_PATHS_PATCHED" 2>/dev/null
+disk_cleanup
+DISKEOF
+
+run bash "$_DISK_RUNNER"
 assert_exit "disk-cleanup with empty dirs exits 0" 0
 
 # ─────────────────────────────────────────────────────────────────────────────

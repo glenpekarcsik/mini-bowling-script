@@ -124,6 +124,7 @@ show_logs() {
             echo "  mini-bowling.sh logs dump          full output of today's log"
             echo "  mini-bowling.sh logs tail [N]      last N lines of today's log (default: 50)"
             echo "  mini-bowling.sh logs clean         delete all log files"
+            echo "  mini-bowling.sh logs clean --keep 7  delete all but the last 7 days"
             ;;
 
         follow)
@@ -154,19 +155,48 @@ show_logs() {
                 echo "Log directory not found: $LOG_DIR"
                 return 0
             fi
-            local log_files
-            mapfile -t log_files < <(find "$LOG_DIR" -maxdepth 1 -name "mini-bowling-*.log" 2>/dev/null | sort)
-            if [[ ${#log_files[@]} -eq 0 ]]; then
+
+            # Parse optional --keep N argument
+            local keep=0
+            if [[ "${1:-}" == "--keep" ]]; then
+                keep="${2:?Missing number after --keep}"
+                [[ "$keep" =~ ^[0-9]+$ ]] || die "Invalid --keep value: '$keep' — must be a number"
+            elif [[ "${1:-}" == --keep=* ]]; then
+                keep="${1#--keep=}"
+                [[ "$keep" =~ ^[0-9]+$ ]] || die "Invalid --keep value: '$keep' — must be a number"
+            fi
+
+            local all_files
+            mapfile -t all_files < <(find "$LOG_DIR" -maxdepth 1 -name "mini-bowling-*.log" 2>/dev/null | sort -r)
+
+            if [[ ${#all_files[@]} -eq 0 ]]; then
                 echo "No log files to remove."
                 return 0
             fi
+
+            # Determine which files to delete
+            local log_files=()
+            if [[ "$keep" -gt 0 ]]; then
+                # Skip the first $keep files (most recent), delete the rest
+                log_files=("${all_files[@]:$keep}")
+                if [[ ${#log_files[@]} -eq 0 ]]; then
+                    echo "Nothing to remove — only ${#all_files[@]} log file(s) exist, keeping all $keep."
+                    return 0
+                fi
+                echo "Keeping $keep most recent log file(s), removing ${#log_files[@]}:"
+            else
+                log_files=("${all_files[@]}")
+                echo "This will remove all ${#log_files[@]} log file(s):"
+            fi
+
             local total_kb=0
             for f in "${log_files[@]}"; do
                 local kb
                 kb=$(du -k "$f" | cut -f1)
                 total_kb=$(( total_kb + kb ))
+                echo "  $(basename "$f")  ($(du -h "$f" | cut -f1))"
             done
-            echo "This will remove ${#log_files[@]} log file(s) ($(( total_kb / 1024 ))MB total)."
+            echo "Total: $(( total_kb / 1024 ))MB"
             echo -n "Are you sure? [y/N]: "
             read -r confirm
             if [[ "${confirm,,}" != "y" ]]; then
@@ -176,8 +206,13 @@ show_logs() {
             for f in "${log_files[@]}"; do
                 rm -f -- "$f"
             done
-            rm -f "$DEPLOY_STATUS_FILE" 2>/dev/null || true
-            echo -e "${GREEN}✓ Removed ${#log_files[@]} log file(s) and deploy status record${NC}"
+            # Only remove deploy status when doing a full clean (keep=0)
+            if [[ "$keep" -eq 0 ]]; then
+                rm -f "$DEPLOY_STATUS_FILE" 2>/dev/null || true
+                echo -e "${GREEN}✓ Removed ${#log_files[@]} log file(s) and deploy status record${NC}"
+            else
+                echo -e "${GREEN}✓ Removed ${#log_files[@]} log file(s)${NC}"
+            fi
             ;;
 
         *)
@@ -298,6 +333,31 @@ print_status() {
         fi
     else
         echo "Sketch      : unknown (no upload recorded)"
+    fi
+
+    # Git repo state
+    if [[ -d "$PROJECT_DIR/.git" ]]; then
+        local git_branch git_commit git_subject git_behind git_dirty
+        git_branch=$(git -C "$PROJECT_DIR" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "unknown")
+        git_commit=$(git -C "$PROJECT_DIR" rev-parse --short HEAD 2>/dev/null || echo "unknown")
+        git_subject=$(git -C "$PROJECT_DIR" log -1 --format='%s' 2>/dev/null || echo "")
+        git -C "$PROJECT_DIR" fetch --quiet origin "$git_branch" 2>/dev/null || true
+        git_behind=$(git -C "$PROJECT_DIR" rev-list "HEAD..origin/${git_branch}" --count 2>/dev/null || echo "?")
+        if git -C "$PROJECT_DIR" diff --quiet 2>/dev/null && \
+           git -C "$PROJECT_DIR" diff --cached --quiet 2>/dev/null; then
+            git_dirty=""
+        else
+            git_dirty="  (uncommitted changes)"
+        fi
+        local git_behind_label=""
+        if [[ "$git_behind" != "0" && "$git_behind" != "?" ]]; then
+            git_behind_label="  ${YELLOW}↓ $git_behind commit(s) behind remote${NC}"
+        elif [[ "$git_behind" == "0" ]]; then
+            git_behind_label="  (up to date)"
+        fi
+        echo -e "Git branch  : $git_branch  [$git_commit] $git_subject${git_dirty}${git_behind_label}"
+    else
+        echo "Git branch  : not a git repo"
     fi
 
     local sm_pid
@@ -877,6 +937,27 @@ script_version() {
     echo "Script path          : $script_path"
     echo "Last modified        : $(date -r "$script_path" '+%Y-%m-%d %H:%M:%S' 2>/dev/null || stat -c '%y' "$script_path" 2>/dev/null | cut -c1-19)"
     echo "Shell                : $BASH_VERSION"
+
+    # Check remote for a newer version
+    echo -n "Remote version       : "
+    local remote_version=""
+    if command -v curl >/dev/null 2>&1; then
+        # Extract owner/repo from SCRIPT_REPO (strip https://github.com/ and .git)
+        local repo_path="${SCRIPT_REPO#https://github.com/}"
+        repo_path="${repo_path%.git}"
+        local raw_url="https://raw.githubusercontent.com/${repo_path}/refs/heads/${DEFAULT_GIT_BRANCH}/mini-bowling.sh"
+        remote_version=$(curl -fsSL --max-time 5 "$raw_url" 2>/dev/null \
+            | grep -m1 'SCRIPT_VERSION=' | sed 's/.*SCRIPT_VERSION="//;s/".*//' || echo "")
+    fi
+
+    if [[ -z "$remote_version" ]]; then
+        echo "unavailable (no network or repo unreachable)"
+    elif [[ "$remote_version" == "$SCRIPT_VERSION" ]]; then
+        echo -e "${GREEN}${remote_version} (up to date)${NC}"
+    else
+        echo -e "${YELLOW}${remote_version} — update available!${NC}"
+        echo "  Run: mini-bowling.sh update-script"
+    fi
 }
 
 # Item 5: show which ScoreMore version is currently active via the desktop symlink
@@ -995,10 +1076,25 @@ doctor() {
     done
 
     echo
-    if $all_ok; then
-        echo -e "${GREEN}✓ All required dependencies found${NC}"
+    # Serial port access — dialout group membership
+    echo "Serial port access:"
+    local current_user
+    current_user=$(id -un)
+    if id -nG "$current_user" 2>/dev/null | grep -qw "dialout"; then
+        printf "  ${GREEN}✓${NC}  $current_user is in the dialout group\n"
     else
-        echo -e "${RED}✗ Some required dependencies are missing — install them and re-run doctor${NC}"
+        printf "  ${RED}✗${NC}  $current_user is NOT in the dialout group\n"
+        echo "     Serial port access will fail without this."
+        echo "     Fix: sudo usermod -aG dialout $current_user"
+        echo "     Then log out and back in (or reboot) for it to take effect."
+        all_ok=false
+    fi
+
+    echo
+    if $all_ok; then
+        echo -e "${GREEN}✓ All checks passed${NC}"
+    else
+        echo -e "${RED}✗ Some checks failed — see above for fix commands${NC}"
         return 1
     fi
 }
@@ -1357,6 +1453,17 @@ cmd_rollback() {
     git -C "$PROJECT_DIR" log --oneline -1
     echo
 
+    # Use the same sketch that was last uploaded, not a hardcoded name
+    local sketch="Everything"
+    if [[ -f "$ARDUINO_STATUS_FILE" ]]; then
+        local recorded_sketch
+        recorded_sketch=$(sed -n '1p' "$ARDUINO_STATUS_FILE")
+        if [[ -n "$recorded_sketch" && -d "$PROJECT_DIR/$recorded_sketch" ]]; then
+            sketch="$recorded_sketch"
+        fi
+    fi
+    echo "→ Uploading sketch: $sketch"
+
     # Verify port before killing ScoreMore
     local port
     port=$(find_arduino_port) || true
@@ -1365,14 +1472,14 @@ cmd_rollback() {
     echo "Terminating ScoreMore before upload..."
     kill_scoremore_gracefully
 
-    echo "→ Compiling + uploading Everything sketch..."
+    echo "→ Compiling + uploading $sketch sketch..."
     local -a timeout_cmd=()
     command -v timeout >/dev/null 2>&1 && timeout_cmd=(timeout 120)
 
     "${timeout_cmd[@]}" arduino-cli compile --upload \
         --port "$port" \
         --fqbn "$BOARD" \
-        "${PROJECT_DIR}/Everything" || {
+        "${PROJECT_DIR}/${sketch}" || {
         local exit_code=$?
         [[ $exit_code -eq 124 ]] && die "arduino-cli timed out after 120s — Arduino may be locked up"
         die "arduino-cli failed (exit $exit_code)"
@@ -1381,7 +1488,7 @@ cmd_rollback() {
     # Record what was uploaded
     mkdir -p "$LOG_DIR"
     {
-        echo "Everything"
+        echo "$sketch"
         echo "$(date '+%Y-%m-%d %H:%M:%S')"
         echo "$(git -C "$PROJECT_DIR" rev-parse --short HEAD 2>/dev/null || echo 'unknown')"
         echo "$(git -C "$PROJECT_DIR" log -1 --format='%s' 2>/dev/null || echo '')"
@@ -2372,7 +2479,7 @@ Available commands:
   unschedule-deploy     Remove the scheduled daily deploy
   console               Arduino serial monitor (Ctrl+C to exit)
   list                  arduino-cli board list
-  logs [list|follow|dump|tail [N]|clean]
+  logs [list|follow|dump|tail [N]|clean [--keep N]]
                         List log files, view today's log, or delete all logs (default: list)
   update-script         Pull latest version of mini-bowling.sh from GitHub
   create-dir            Create required directories

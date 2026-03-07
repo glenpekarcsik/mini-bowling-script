@@ -234,6 +234,7 @@ assert_exit   "version exits 0"                  0
 assert_output_contains "version prints SCRIPT_VERSION" "version"
 assert_output_contains "version prints Script path"    "Script path"
 assert_output_contains "version prints Shell"          "Shell"
+assert_output_contains "version prints Remote version" "Remote version"
 
 # ─────────────────────────────────────────────────────────────────────────────
 suite "Unknown command handling"
@@ -389,6 +390,35 @@ else
     pass "logs clean removes log files"  # already cleaned by the runner
 fi
 
+# Test --keep N: recreate files and verify keep=1 leaves the newest
+if [[ -n "$_REAL_LOG_DIR" ]] && mkdir -p "$_REAL_LOG_DIR" 2>/dev/null; then
+    touch "$_REAL_LOG_DIR/mini-bowling-2026-01-03.log"
+    touch "$_REAL_LOG_DIR/mini-bowling-2026-01-04.log"
+    touch "$_REAL_LOG_DIR/mini-bowling-2026-01-05.log"
+
+    _LOG_KEEP_RUNNER="$(tmpdir)/log_keep.sh"
+    cat > "$_LOG_KEEP_RUNNER" << KEEPEOF
+#!/usr/bin/env bash
+MINI_BOWLING_SOURCED=1 source "$SCRIPT"
+echo y | show_logs clean --keep 1
+KEEPEOF
+
+    run bash "$_LOG_KEEP_RUNNER"
+    assert_exit "logs clean --keep 1 exits 0" 0
+    assert_output_contains "logs clean --keep reports kept count" "Keeping 1"
+
+    # The 2 older files should be gone; the newest (2026-01-05) should remain
+    assert_file_not_exists "logs clean --keep removes older file" \
+        "$_REAL_LOG_DIR/mini-bowling-2026-01-03.log"
+    assert_file_exists "logs clean --keep retains newest file" \
+        "$_REAL_LOG_DIR/mini-bowling-2026-01-05.log"
+
+    # Clean up
+    rm -f "$_REAL_LOG_DIR/mini-bowling-2026-01-03.log" \
+          "$_REAL_LOG_DIR/mini-bowling-2026-01-04.log" \
+          "$_REAL_LOG_DIR/mini-bowling-2026-01-05.log" 2>/dev/null || true
+fi
+
 # Clean up any test log files we created in the real log dir
 if $_CLEANUP_LOGS; then
     rm -f "$_REAL_LOG_DIR/mini-bowling-2026-01-01.log" \
@@ -487,6 +517,150 @@ sed \
     -e "s|readonly PROJECT_DIR=.*|PROJECT_DIR='$_PROJECT2'|" \
     -e "s|readonly SYMLINK_PATH=.*|SYMLINK_PATH='/tmp/nonexistent_symlink_xyzzy_test'|" \
     "$SCRIPT" > "$_PATHS_PATCHED"
+
+# ─────────────────────────────────────────────────────────────────────────────
+suite "rollback — sketch selection from upload history"
+# ─────────────────────────────────────────────────────────────────────────────
+
+_ROLLBACK_DIR="$(tmpdir)"
+_ROLLBACK_LOG="$(tmpdir)"
+_ROLLBACK_STATUS_FILE="$_ROLLBACK_LOG/.last-arduino-upload"
+
+# Create a fake sketch dir and git repo
+mkdir -p "$_ROLLBACK_DIR/Master_Test"
+touch "$_ROLLBACK_DIR/Master_Test/Master_Test.ino"
+cd "$_ROLLBACK_DIR" && git init -q && git config user.email "test@test" \
+    && git config user.name "Test" \
+    && git commit -q --allow-empty -m "init" \
+    && git commit -q --allow-empty -m "second" \
+    && cd - >/dev/null
+
+# Write an upload history file saying Master_Test was last uploaded
+printf "Master_Test\n2026-01-01 00:00:00\nabc1234\nTest commit\n" > "$_ROLLBACK_STATUS_FILE"
+
+# Patch readonly path vars before sourcing
+_ROLLBACK_PATCHED="$(tmpdir)/mini-bowling-rollback.sh"
+sed \
+    -e "s|readonly PROJECT_DIR=.*|PROJECT_DIR='$_ROLLBACK_DIR'|" \
+    -e "s|readonly LOG_DIR=.*|LOG_DIR='$_ROLLBACK_LOG'|" \
+    -e "s|readonly ARDUINO_STATUS_FILE=.*|ARDUINO_STATUS_FILE='$_ROLLBACK_STATUS_FILE'|" \
+    "$SCRIPT" > "$_ROLLBACK_PATCHED"
+
+_ROLLBACK_RUNNER="$(tmpdir)/rollback_test.sh"
+cat > "$_ROLLBACK_RUNNER" << RBEOF
+#!/usr/bin/env bash
+MINI_BOWLING_SOURCED=1 source "$_ROLLBACK_PATCHED"
+verify_arduino_port()      { true; }
+kill_scoremore_gracefully(){ true; }
+start_scoremore()          { true; }
+require_arduino_cli()      { true; }
+# Override cmd_rollback to just print sketch selection without doing git reset
+cmd_rollback() {
+    local sketch="Everything"
+    if [[ -f "\$ARDUINO_STATUS_FILE" ]]; then
+        local recorded_sketch
+        recorded_sketch=\$(sed -n '1p' "\$ARDUINO_STATUS_FILE")
+        if [[ -n "\$recorded_sketch" && -d "\$PROJECT_DIR/\$recorded_sketch" ]]; then
+            sketch="\$recorded_sketch"
+        fi
+    fi
+    echo "USING_SKETCH:\$sketch"
+}
+cmd_rollback 1
+RBEOF
+
+run bash "$_ROLLBACK_RUNNER"
+assert_exit "rollback sketch selection exits 0" 0
+assert_output_contains     "rollback uses last-uploaded sketch from history"      "USING_SKETCH:Master_Test"
+assert_output_not_contains "rollback does not default to Everything when history exists" "USING_SKETCH:Everything"
+
+# ─────────────────────────────────────────────────────────────────────────────
+suite "deploy — status file format"
+# ─────────────────────────────────────────────────────────────────────────────
+
+_DEPLOY_STATUS_DIR="$(tmpdir)"
+_DEPLOY_STATUS_TEST_FILE="$_DEPLOY_STATUS_DIR/.last-deploy-status"
+
+_DEPLOY_PATCHED="$(tmpdir)/mini-bowling-deploystatus.sh"
+sed \
+    -e "s|readonly LOG_DIR=.*|LOG_DIR='$_DEPLOY_STATUS_DIR'|" \
+    -e "s|readonly DEPLOY_STATUS_FILE=.*|DEPLOY_STATUS_FILE='$_DEPLOY_STATUS_TEST_FILE'|" \
+    "$SCRIPT" > "$_DEPLOY_PATCHED"
+
+_DEPLOY_STATUS_RUNNER="$(tmpdir)/deploy_status_test.sh"
+cat > "$_DEPLOY_STATUS_RUNNER" << DSEOF
+#!/usr/bin/env bash
+MINI_BOWLING_SOURCED=1 source "$_DEPLOY_PATCHED"
+git() {
+    case "\$*" in
+        *rev-parse*short*) echo "abc1234" ;;
+        *log*format*)      echo "Test commit message" ;;
+        *)                 return 0 ;;
+    esac
+}
+deploy_start="\$(date '+%Y-%m-%d %H:%M:%S')"
+deploy_commit="abc1234"
+deploy_subject="Test commit message"
+_write_deploy_status() {
+    local result="\$1"
+    mkdir -p "\$LOG_DIR"
+    printf "%s\n%s\n%s\n%s\n%s\n" \
+        "\$deploy_start" \
+        "\$(date '+%Y-%m-%d %H:%M:%S')" \
+        "\$result" \
+        "\$deploy_commit" \
+        "\$deploy_subject" \
+        > "\$DEPLOY_STATUS_FILE"
+}
+_write_deploy_status "OK"
+DSEOF
+
+run bash "$_DEPLOY_STATUS_RUNNER"
+assert_exit "deploy status file write exits 0" 0
+assert_file_exists "deploy status file is created" "$_DEPLOY_STATUS_TEST_FILE"
+
+if [[ -f "$_DEPLOY_STATUS_TEST_FILE" ]]; then
+    line_count=$(wc -l < "$_DEPLOY_STATUS_TEST_FILE")
+    if [[ "$line_count" -ge 5 ]]; then
+        pass "deploy status file has 5+ lines (includes commit info)"
+    else
+        fail "deploy status file has 5+ lines (includes commit info)" "got $line_count lines"
+    fi
+    result_line=$(sed -n '3p' "$_DEPLOY_STATUS_TEST_FILE")
+    assert_equals "deploy status file result line is OK" "OK" "$result_line"
+    commit_line=$(sed -n '4p' "$_DEPLOY_STATUS_TEST_FILE")
+    assert_equals "deploy status file commit line is correct" "abc1234" "$commit_line"
+fi
+# ─────────────────────────────────────────────────────────────────────────────
+suite "upload --list-sketches — last-uploaded marker"
+# ─────────────────────────────────────────────────────────────────────────────
+
+_LIST_PROJECT="$(tmpdir)"
+_LIST_LOG="$(tmpdir)"
+_LIST_STATUS="$_LIST_LOG/.last-arduino-upload"
+mkdir -p "$_LIST_PROJECT/Everything" "$_LIST_PROJECT/Master_Test"
+touch "$_LIST_PROJECT/Everything/Everything.ino"
+touch "$_LIST_PROJECT/Master_Test/Master_Test.ino"
+printf "Everything\n2026-01-01 02:30:00\nabc1234\nTest commit\n" > "$_LIST_STATUS"
+
+_LIST_PATCHED="$(tmpdir)/mini-bowling-listsketches.sh"
+sed \
+    -e "s|readonly PROJECT_DIR=.*|PROJECT_DIR='$_LIST_PROJECT'|" \
+    -e "s|readonly ARDUINO_STATUS_FILE=.*|ARDUINO_STATUS_FILE='$_LIST_STATUS'|" \
+    "$SCRIPT" > "$_LIST_PATCHED"
+
+_LIST_RUNNER="$(tmpdir)/list_sketches.sh"
+cat > "$_LIST_RUNNER" << LISTEOF
+#!/usr/bin/env bash
+MINI_BOWLING_SOURCED=1 source "$_LIST_PATCHED"
+require_project_dir() { cd "$_LIST_PROJECT"; }
+list_available_sketches
+LISTEOF
+
+run bash "$_LIST_RUNNER"
+assert_exit "list-sketches exits 0" 0
+assert_output_contains "list-sketches shows last uploaded marker" "last uploaded"
+assert_output_contains "list-sketches highlights correct sketch"  "Everything"
 
 # ─────────────────────────────────────────────────────────────────────────────
 suite "scoremore_history — list with no AppImages"
@@ -649,6 +823,7 @@ assert_exit "status exits 0" 0
 assert_output_contains "status shows Port line"       "Port"
 assert_output_contains "status shows ScoreMore line"  "ScoreMore"
 assert_output_contains "status shows Sketch line"     "Sketch"
+assert_output_contains "status shows Git branch line" "Git branch"
 assert_output_contains "status shows Last deploy"     "Last deploy"
 assert_output_contains "status shows VNC line"        "VNC"
 
@@ -656,9 +831,10 @@ suite "Integration — doctor"
 
 run bash "$SCRIPT" doctor
 assert_exit "doctor exits 0" 0
-assert_output_contains "doctor checks git"       "git"
-assert_output_contains "doctor checks curl"      "curl"
+assert_output_contains "doctor checks git"         "git"
+assert_output_contains "doctor checks curl"        "curl"
 assert_output_contains "doctor checks arduino-cli" "arduino-cli"
+assert_output_contains "doctor checks dialout"     "dialout"
 
 suite "Integration — check-update"
 

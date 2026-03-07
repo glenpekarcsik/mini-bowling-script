@@ -80,7 +80,7 @@ skip() {
 run() {
     local out
     _run_exit=0
-    out=$("$@" 2>&1) || _run_exit=$?
+    { out=$(set +e; "$@" 2>&1); _run_exit=$?; } 2>/dev/null || true
     _run_out="$out"
 }
 

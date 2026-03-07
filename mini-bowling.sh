@@ -1843,6 +1843,142 @@ wifi_status() {
     fi
 }
 
+vnc_status() {
+    echo "=== VNC Status ==="
+    echo
+
+    # ── 1. Installation ───────────────────────────────────────────────────────
+
+    local vnc_bin=""
+    local vnc_flavor=""
+
+    if command -v vncserver >/dev/null 2>&1; then
+        vnc_bin=$(command -v vncserver)
+        # Distinguish RealVNC (ships on Pi OS) from TigerVNC / TightVNC
+        if vncserver --help 2>&1 | grep -qi "realvnc\|vnc connect"; then
+            vnc_flavor="RealVNC"
+        elif vncserver --help 2>&1 | grep -qi "tigervnc"; then
+            vnc_flavor="TigerVNC"
+        elif vncserver --help 2>&1 | grep -qi "tightvnc"; then
+            vnc_flavor="TightVNC"
+        else
+            vnc_flavor="VNC"
+        fi
+    elif command -v x11vnc >/dev/null 2>&1; then
+        vnc_bin=$(command -v x11vnc)
+        vnc_flavor="x11vnc"
+    fi
+
+    if [[ -z "$vnc_bin" ]]; then
+        echo -e "Installed   : ${RED}No VNC server found${NC}"
+        echo    "  Install RealVNC:  sudo apt-get install realvnc-vnc-server"
+        echo    "  Install TigerVNC: sudo apt-get install tigervnc-standalone-server"
+        return 0
+    fi
+
+    echo -e "Installed   : ${GREEN}${vnc_flavor}${NC}  ($vnc_bin)"
+
+    # ── 2. Service / running state ────────────────────────────────────────────
+
+    local service_running=false
+    local service_name=""
+
+    # Check common service names
+    for svc in vncserver-x11-serviced vncserver-virtuald tigervnc x11vnc vncserver; do
+        if systemctl is-active --quiet "$svc" 2>/dev/null; then
+            service_running=true
+            service_name="$svc"
+            break
+        fi
+    done
+
+    # Also check for a running vncserver / Xvnc process directly
+    local proc_running=false
+    if pgrep -x "vncserver\|Xvnc\|x11vnc\|vncserver-x11" >/dev/null 2>&1 || \
+       pgrep -f "vncserver\|Xvnc\|x11vnc" >/dev/null 2>&1; then
+        proc_running=true
+    fi
+
+    if $service_running; then
+        echo -e "Service     : ${GREEN}running${NC}  (systemd: $service_name)"
+    elif $proc_running; then
+        local pid
+        pid=$(pgrep -f "Xvnc\|vncserver\|x11vnc" | head -1)
+        echo -e "Service     : ${YELLOW}running (process, no systemd service)${NC}  (pid $pid)"
+    else
+        echo -e "Service     : ${RED}not running${NC}"
+        echo    "  Start:  sudo systemctl start vncserver-x11-serviced"
+        echo    "   — or — vncserver :1"
+    fi
+
+    # ── 3. Active VNC displays / ports ────────────────────────────────────────
+
+    # Each Xvnc display :N listens on port 5900+N
+    local displays
+    displays=$(ss -tlnp 2>/dev/null | awk '$4 ~ /:59[0-9][0-9]$/ {
+        split($4, a, ":"); port=a[length(a)]
+        display = port - 5900
+        printf ":%d  (port %d)\n", display, port
+    }' | sort -u)
+
+    if [[ -n "$displays" ]]; then
+        echo -e "Displays    : ${GREEN}${displays}${NC}" | head -1
+        # Print extra displays indented if more than one
+        echo "$displays" | tail -n +2 | while IFS= read -r d; do
+            echo "              $d"
+        done
+    else
+        echo -e "Displays    : ${YELLOW}none listening${NC}"
+    fi
+
+    # ── 4. Autostart ──────────────────────────────────────────────────────────
+
+    local autostart_status=""
+
+    # systemd enable
+    for svc in vncserver-x11-serviced vncserver-virtuald tigervnc x11vnc; do
+        if systemctl is-enabled --quiet "$svc" 2>/dev/null; then
+            autostart_status="enabled (systemd: $svc)"
+            break
+        fi
+    done
+
+    # raspi-config / wayvnc sets this file
+    if [[ -z "$autostart_status" ]] && \
+       grep -qr "vncserver\|wayvnc\|x11vnc" \
+           /etc/xdg/autostart/ /etc/rc.local \
+           "$HOME/.config/autostart/" 2>/dev/null; then
+        autostart_status="enabled (autostart file)"
+    fi
+
+    if [[ -n "$autostart_status" ]]; then
+        echo -e "Autostart   : ${GREEN}${autostart_status}${NC}"
+    else
+        echo -e "Autostart   : ${YELLOW}not configured${NC}"
+        echo    "  Enable:  sudo systemctl enable vncserver-x11-serviced"
+        echo    "   — or — sudo raspi-config  → Interface Options → VNC"
+    fi
+
+    # ── 5. VNC port reachability from localhost ────────────────────────────────
+
+    local port_ok=false
+    for port in 5900 5901; do
+        if ss -tlnp 2>/dev/null | grep -q ":${port}"; then
+            port_ok=true
+            break
+        fi
+    done
+
+    if $port_ok; then
+        # Show the IP a remote client would connect to
+        local lan_ip
+        lan_ip=$(hostname -I 2>/dev/null | awk '{print $1}')
+        echo -e "Connect to  : ${GREEN}${lan_ip:-<Pi IP>}:5900${NC}  from your VNC viewer"
+    else
+        echo -e "Connect to  : ${RED}no VNC port listening${NC}"
+    fi
+}
+
 install_cli() {
     if command -v arduino-cli >/dev/null 2>&1; then
         echo -e "${GREEN}arduino-cli is already installed:${NC} $(arduino-cli version --log-format short)"
@@ -1979,6 +2115,7 @@ Available commands:
   pi-reboot             Reboot the Raspberry Pi (5 second countdown)
   pi-shutdown           Shut down the Raspberry Pi (5 second countdown)
   wifi-status           Show network interface, IP, SSID, and internet reachability
+  vnc-status            Check VNC server installation, configuration, and running state
 
 Examples:
   mini-bowling status
@@ -2032,6 +2169,7 @@ Examples:
   mini-bowling pi-reboot
   mini-bowling pi-shutdown
   mini-bowling wifi-status
+  mini-bowling vnc-status
 
 EOF
         exit 0
@@ -2045,6 +2183,7 @@ EOF
     # Skip logging for informational commands that don't do anything
     if [[ "$cmd" != "logs" && "$cmd" != "status" && "$cmd" != "list" \
        && "$cmd" != "pi-status" && "$cmd" != "wifi-status" \
+       && "$cmd" != "vnc-status" \
        && "$cmd" != "doctor" && "$cmd" != "preflight" \
        && "$cmd" != "scoremore-version" && "$cmd" != "wait-for-network" \
        && "$cmd" != "check-update" && "$cmd" != "scoremore-history" \
@@ -2249,6 +2388,9 @@ _dispatch() {
             ;;
         wifi-status)
             wifi_status
+            ;;
+        vnc-status)
+            vnc_status
             ;;
         logs)
             show_logs "$@"

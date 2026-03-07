@@ -573,6 +573,26 @@ else
     fail "backup creates a .tar.gz file" "no .tar.gz found in $FAKE_BACKUP"
 fi
 
+# ─────────────────────────────────────────────────────────────────────────────
+suite "vnc-status — command dispatch and output structure"
+# ─────────────────────────────────────────────────────────────────────────────
+
+# vnc-status is a read-only status command — test that it exits 0 and produces
+# structured output regardless of whether VNC is actually installed.
+run bash "$SCRIPT" vnc-status
+assert_exit "vnc-status exits 0" 0
+assert_output_contains "vnc-status prints header"     "VNC Status"
+assert_output_contains "vnc-status reports installed" "Installed"
+
+# Service/Autostart/Connect-to only appear when a VNC server is installed
+if bash "$SCRIPT" vnc-status 2>/dev/null | grep -q "No VNC server found"; then
+    skip "vnc-status reports service"   "VNC not installed"
+    skip "vnc-status reports autostart" "VNC not installed"
+else
+    assert_output_contains "vnc-status reports service"   "Service"
+    assert_output_contains "vnc-status reports autostart" "Autostart"
+fi
+
 fi  # end unit tests
 
 # ── INTEGRATION TESTS ─────────────────────────────────────────────────────────
@@ -638,6 +658,20 @@ if $ARDUINO_CLI_PRESENT; then
     assert_exit "upload --list-sketches exits 0" 0
 else
     skip "upload --list-sketches" "arduino-cli not installed"
+fi
+
+suite "Integration — vnc-status"
+
+run bash "$SCRIPT" vnc-status
+assert_exit "vnc-status exits 0" 0
+assert_output_contains "vnc-status shows structured output" "VNC Status"
+
+# If VNC is running, verify it reports a connect address
+if pgrep -f "Xvnc\|vncserver\|x11vnc\|wayvnc" >/dev/null 2>&1 || \
+   ss -tlnp 2>/dev/null | grep -q ":590"; then
+    assert_output_contains "vnc-status shows connect address when running" "Connect to"
+else
+    skip "vnc-status connect address" "VNC not running"
 fi
 
 fi  # end integration tests

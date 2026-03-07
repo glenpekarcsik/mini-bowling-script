@@ -41,6 +41,7 @@ This script simplifies common tasks when developing and deploying code for a min
 - Pi health overview — CPU temp, memory, disk, uptime (`pi-status`)
 - OS updates, reboot, and shutdown with safety countdowns (`pi-update`, `pi-reboot`, `pi-shutdown`)
 - Wi-Fi diagnostics — interface, IP, SSID, signal, internet reachability (`wifi-status`)
+- VNC diagnostics — installation, service state, active displays, autostart, connect address (`vnc-status`)
 
 **Maintenance**
 - Config, sketch, and script backup with automatic 10-backup retention (`backup`)
@@ -215,6 +216,7 @@ sudo cp mini-bowling.sh /usr/bin/mini-bowling.sh
 | `pi-reboot` | Reboot with a 5-second countdown | — | `mini-bowling.sh pi-reboot` |
 | `pi-shutdown` | Shut down with a 5-second countdown | — | `mini-bowling.sh pi-shutdown` |
 | `wifi-status` | Show interface, IP, SSID, signal, and internet reachability | — | `mini-bowling.sh wifi-status` |
+| `vnc-status` | Check VNC server installation, service state, active displays, autostart, and connect address | — | `mini-bowling.sh vnc-status` |
 | `wait-for-network` | Wait up to N seconds for internet connectivity | `[N]` (default: 30) | `mini-bowling.sh wait-for-network 60` |
 | `create-dir` | Create project, ScoreMore, and log directories if missing | — | `mini-bowling.sh create-dir` |
 | `install-cli` | Install `arduino-cli` to `~/.local/bin` if missing | — | `mini-bowling.sh install-cli` |
@@ -274,6 +276,7 @@ mini-bowling.sh rollback 2
 
 mini-bowling.sh pi-status
 mini-bowling.sh wifi-status
+mini-bowling.sh vnc-status
 mini-bowling.sh pi-update
 mini-bowling.sh pi-reboot
 mini-bowling.sh pi-shutdown
@@ -542,7 +545,7 @@ mini-bowling.sh logs tail 100  # last 100 lines
 mini-bowling.sh logs clean     # delete all log files (asks for confirmation)
 ```
 
-Read-only commands are not logged: `status`, `list`, `logs`, `version`, `pi-status`, `wifi-status`, `doctor`, `preflight`, `scoremore-version`, `scoremore-history`, `check-update`, `check-scoremore-update`, `serial-log`, `setup-watchdog`, `watchdog`, and `wait-for-network`.
+Read-only commands are not logged: `status`, `list`, `logs`, `version`, `pi-status`, `wifi-status`, `vnc-status`, `doctor`, `preflight`, `scoremore-version`, `scoremore-history`, `check-update`, `check-scoremore-update`, `serial-log`, `setup-watchdog`, `watchdog`, and `wait-for-network`.
 
 ## Raspberry Pi Management
 
@@ -552,9 +555,12 @@ mini-bowling.sh pi-update      # apt update + upgrade, prompts to reboot if need
 mini-bowling.sh pi-reboot      # reboot with 5-second countdown (Ctrl+C to cancel)
 mini-bowling.sh pi-shutdown    # shutdown with 5-second countdown
 mini-bowling.sh wifi-status    # interface, IP, SSID, signal, internet reachability
+mini-bowling.sh vnc-status     # VNC installation, service state, displays, autostart
 ```
 
-`pi-update`, `pi-reboot`, and `pi-shutdown` require `sudo`. `pi-status` and `wifi-status` are read-only.
+`vnc-status` checks five things: whether a VNC server is installed (RealVNC, TigerVNC, TightVNC, or x11vnc), whether the service is running (via systemd or process scan), which displays and ports are active, whether autostart is configured, and the LAN IP/port to connect from a VNC viewer. If anything is misconfigured it prints the suggested fix command inline.
+
+`pi-update`, `pi-reboot`, and `pi-shutdown` require `sudo`. `pi-status`, `wifi-status`, and `vnc-status` are read-only.
 
 ## Dependency Check
 

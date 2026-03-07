@@ -593,6 +593,22 @@ else
     assert_output_contains "vnc-status reports autostart" "Autostart"
 fi
 
+# ─────────────────────────────────────────────────────────────────────────────
+suite "vnc-setup — command dispatch and subcommand validation"
+# ─────────────────────────────────────────────────────────────────────────────
+
+# No subcommand: should print usage and exit 0
+run bash "$SCRIPT" vnc-setup
+assert_exit "vnc-setup with no args exits 0" 0
+assert_output_contains "vnc-setup shows usage"   "Usage"
+assert_output_contains "vnc-setup lists start"   "start"
+assert_output_contains "vnc-setup lists enable"  "enable-autostart"
+
+# Unknown subcommand: should exit non-zero with error message
+run bash "$SCRIPT" vnc-setup bogus-subcommand
+assert_nonzero "vnc-setup with unknown subcommand exits non-zero"
+assert_output_contains "vnc-setup unknown subcommand error" "bogus-subcommand"
+
 fi  # end unit tests
 
 # ── INTEGRATION TESTS ─────────────────────────────────────────────────────────
@@ -672,6 +688,32 @@ if pgrep -f "Xvnc\|vncserver\|x11vnc\|wayvnc" >/dev/null 2>&1 || \
     assert_output_contains "vnc-status shows connect address when running" "Connect to"
 else
     skip "vnc-status connect address" "VNC not running"
+fi
+
+suite "Integration — vnc-setup"
+
+# No subcommand always works
+run bash "$SCRIPT" vnc-setup
+assert_exit "vnc-setup no-args exits 0" 0
+
+# start/stop/enable/disable only run if VNC is installed
+if command -v vncserver >/dev/null 2>&1 || command -v x11vnc >/dev/null 2>&1; then
+    run bash "$SCRIPT" vnc-setup start
+    assert_exit "vnc-setup start exits 0" 0
+
+    run bash "$SCRIPT" vnc-setup stop
+    assert_exit "vnc-setup stop exits 0" 0
+
+    run bash "$SCRIPT" vnc-setup enable-autostart
+    assert_exit "vnc-setup enable-autostart exits 0" 0
+
+    run bash "$SCRIPT" vnc-setup disable-autostart
+    assert_exit "vnc-setup disable-autostart exits 0" 0
+else
+    skip "vnc-setup start"            "VNC not installed"
+    skip "vnc-setup stop"             "VNC not installed"
+    skip "vnc-setup enable-autostart" "VNC not installed"
+    skip "vnc-setup disable-autostart" "VNC not installed"
 fi
 
 fi  # end integration tests

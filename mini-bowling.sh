@@ -1979,6 +1979,179 @@ vnc_status() {
     fi
 }
 
+# Detect the best available VNC service name for systemd operations
+# Sets _vnc_service in the caller's scope
+_vnc_detect_service() {
+    _vnc_service=""
+    for svc in vncserver-x11-serviced vncserver-virtuald tigervnc x11vnc vncserver; do
+        if systemctl list-unit-files --quiet "$svc.service" 2>/dev/null | grep -q "$svc"; then
+            _vnc_service="$svc"
+            return 0
+        fi
+    done
+    return 1
+}
+
+vnc_setup() {
+    local subcmd="${1:-}"
+
+    # No subcommand: show usage without requiring VNC to be installed
+    if [[ -z "$subcmd" ]]; then
+        echo "Usage: mini-bowling.sh vnc-setup <subcommand>"
+        echo
+        echo "Subcommands:"
+        echo "  start             Start VNC now"
+        echo "  stop              Stop VNC"
+        echo "  enable-autostart  Enable VNC to start automatically on boot"
+        echo "  disable-autostart Disable VNC autostart"
+        echo
+        echo "Check current VNC state with: mini-bowling.sh vnc-status"
+        return 0
+    fi
+
+    # Unknown subcommand check (before VNC detection so error is always shown)
+    case "$subcmd" in
+        start|stop|enable-autostart|disable-autostart) ;;
+        *) die "Unknown vnc-setup subcommand: '$subcmd' — use start, stop, enable-autostart, or disable-autostart" ;;
+    esac
+
+    # ── Detect installed VNC flavor ───────────────────────────────────────────
+
+    local vnc_bin=""
+    local vnc_flavor=""
+
+    if command -v vncserver >/dev/null 2>&1; then
+        vnc_bin=$(command -v vncserver)
+        if vncserver --help 2>&1 | grep -qi "realvnc\|vnc connect"; then
+            vnc_flavor="RealVNC"
+        elif vncserver --help 2>&1 | grep -qi "tigervnc"; then
+            vnc_flavor="TigerVNC"
+        else
+            vnc_flavor="VNC"
+        fi
+    elif command -v x11vnc >/dev/null 2>&1; then
+        vnc_bin=$(command -v x11vnc)
+        vnc_flavor="x11vnc"
+    fi
+
+    if [[ -z "$vnc_bin" ]]; then
+        die "No VNC server found. Install one first:
+  RealVNC:  sudo apt-get install realvnc-vnc-server
+  TigerVNC: sudo apt-get install tigervnc-standalone-server"
+    fi
+
+    case "$subcmd" in
+
+        start)
+            # ── Start VNC now ─────────────────────────────────────────────────
+            echo -e "${YELLOW}Starting VNC ($vnc_flavor)...${NC}"
+
+            # Check if already running
+            if pgrep -f "Xvnc\|vncserver\|x11vnc" >/dev/null 2>&1; then
+                echo -e "${GREEN}✓ VNC is already running${NC}"
+                local lan_ip
+                lan_ip=$(hostname -I 2>/dev/null | awk '{print $1}')
+                echo "  Connect: ${lan_ip:-<Pi IP>}:5900"
+                return 0
+            fi
+
+            local _vnc_service
+            _vnc_detect_service
+
+            if [[ -n "$_vnc_service" ]]; then
+                sudo systemctl start "$_vnc_service" || die "Failed to start $_vnc_service"
+                sleep 1
+                if systemctl is-active --quiet "$_vnc_service"; then
+                    echo -e "${GREEN}✓ VNC started${NC}  (systemd: $_vnc_service)"
+                else
+                    die "Service started but does not appear active — check: sudo systemctl status $_vnc_service"
+                fi
+            else
+                # Fall back to vncserver :1 directly
+                echo -e "${YELLOW}No systemd service found — starting vncserver :1 directly${NC}"
+                vncserver :1 || die "vncserver :1 failed — you may need to set a VNC password first: vncpasswd"
+                echo -e "${GREEN}✓ VNC started on display :1${NC}"
+            fi
+
+            local lan_ip
+            lan_ip=$(hostname -I 2>/dev/null | awk '{print $1}')
+            echo "  Connect: ${lan_ip:-<Pi IP>}:5900"
+            ;;
+
+        stop)
+            # ── Stop VNC ──────────────────────────────────────────────────────
+            echo -e "${YELLOW}Stopping VNC ($vnc_flavor)...${NC}"
+
+            local _vnc_service
+            _vnc_detect_service
+
+            local stopped=false
+
+            if [[ -n "$_vnc_service" ]] && systemctl is-active --quiet "$_vnc_service" 2>/dev/null; then
+                sudo systemctl stop "$_vnc_service" || die "Failed to stop $_vnc_service"
+                echo -e "${GREEN}✓ VNC service stopped${NC}  (systemd: $_vnc_service)"
+                stopped=true
+            fi
+
+            # Also kill any stray Xvnc / vncserver processes
+            if pgrep -f "Xvnc\|vncserver :1\|x11vnc" >/dev/null 2>&1; then
+                vncserver -kill :1 2>/dev/null || \
+                    pkill -f "Xvnc\|vncserver\|x11vnc" 2>/dev/null || true
+                echo -e "${GREEN}✓ VNC process stopped${NC}"
+                stopped=true
+            fi
+
+            $stopped || echo -e "${YELLOW}VNC was not running${NC}"
+            ;;
+
+        enable-autostart)
+            # ── Enable autostart on boot ───────────────────────────────────────
+            echo -e "${YELLOW}Enabling VNC autostart on boot ($vnc_flavor)...${NC}"
+
+            local _vnc_service
+            _vnc_detect_service
+
+            if [[ -n "$_vnc_service" ]]; then
+                sudo systemctl enable "$_vnc_service" || die "Failed to enable $_vnc_service"
+                echo -e "${GREEN}✓ VNC autostart enabled${NC}  (systemd: $_vnc_service)"
+                echo    "  VNC will start automatically on next boot."
+                echo    "  To start now:  mini-bowling.sh vnc-setup start"
+            else
+                # No systemd service — try raspi-config if available
+                if command -v raspi-config >/dev/null 2>&1; then
+                    echo "No systemd service found. Enabling via raspi-config..."
+                    sudo raspi-config nonint do_vnc 0 || \
+                        die "raspi-config VNC enable failed"
+                    echo -e "${GREEN}✓ VNC autostart enabled via raspi-config${NC}"
+                else
+                    die "No systemd VNC service found and raspi-config not available.
+Try installing RealVNC: sudo apt-get install realvnc-vnc-server
+Then re-run: mini-bowling.sh vnc-setup enable-autostart"
+                fi
+            fi
+            ;;
+
+        disable-autostart)
+            # ── Disable autostart ─────────────────────────────────────────────
+            echo -e "${YELLOW}Disabling VNC autostart ($vnc_flavor)...${NC}"
+
+            local _vnc_service
+            _vnc_detect_service
+
+            if [[ -n "$_vnc_service" ]] && systemctl is-enabled --quiet "$_vnc_service" 2>/dev/null; then
+                sudo systemctl disable "$_vnc_service" || die "Failed to disable $_vnc_service"
+                echo -e "${GREEN}✓ VNC autostart disabled${NC}  (systemd: $_vnc_service)"
+            elif command -v raspi-config >/dev/null 2>&1; then
+                sudo raspi-config nonint do_vnc 1 || die "raspi-config VNC disable failed"
+                echo -e "${GREEN}✓ VNC autostart disabled via raspi-config${NC}"
+            else
+                echo -e "${YELLOW}VNC autostart was not enabled (or service not found)${NC}"
+            fi
+            ;;
+
+    esac
+}
+
 install_cli() {
     if command -v arduino-cli >/dev/null 2>&1; then
         echo -e "${GREEN}arduino-cli is already installed:${NC} $(arduino-cli version --log-format short)"
@@ -2116,6 +2289,8 @@ Available commands:
   pi-shutdown           Shut down the Raspberry Pi (5 second countdown)
   wifi-status           Show network interface, IP, SSID, and internet reachability
   vnc-status            Check VNC server installation, configuration, and running state
+  vnc-setup <sub>      Start/stop VNC and enable/disable autostart on boot
+                          start, stop, enable-autostart, disable-autostart
 
 Examples:
   mini-bowling.sh status
@@ -2170,6 +2345,8 @@ Examples:
   mini-bowling.sh pi-shutdown
   mini-bowling.sh wifi-status
   mini-bowling.sh vnc-status
+  mini-bowling.sh vnc-setup start
+  mini-bowling.sh vnc-setup enable-autostart
 
 EOF
         exit 0
@@ -2391,6 +2568,9 @@ _dispatch() {
             ;;
         vnc-status)
             vnc_status
+            ;;
+        vnc-setup)
+            vnc_setup "$@"
             ;;
         logs)
             show_logs "$@"

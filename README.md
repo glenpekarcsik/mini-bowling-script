@@ -42,6 +42,7 @@ This script simplifies common tasks when developing and deploying code for a min
 - OS updates, reboot, and shutdown with safety countdowns (`pi-update`, `pi-reboot`, `pi-shutdown`)
 - Wi-Fi diagnostics — interface, IP, SSID, signal, internet reachability (`wifi-status`)
 - VNC diagnostics — installation, service state, active displays, autostart, connect address (`vnc-status`)
+- VNC control — start/stop the service and enable/disable autostart on boot (`vnc-setup`)
 
 **Maintenance**
 - Config, sketch, and script backup with automatic 10-backup retention (`backup`)
@@ -217,6 +218,7 @@ sudo cp mini-bowling.sh /usr/bin/mini-bowling.sh
 | `pi-shutdown` | Shut down with a 5-second countdown | — | `mini-bowling.sh pi-shutdown` |
 | `wifi-status` | Show interface, IP, SSID, signal, and internet reachability | — | `mini-bowling.sh wifi-status` |
 | `vnc-status` | Check VNC server installation, service state, active displays, autostart, and connect address | — | `mini-bowling.sh vnc-status` |
+| `vnc-setup` | Start/stop VNC and enable/disable autostart on boot | `start`, `stop`, `enable-autostart`, `disable-autostart` | `mini-bowling.sh vnc-setup start` |
 | `wait-for-network` | Wait up to N seconds for internet connectivity | `[N]` (default: 30) | `mini-bowling.sh wait-for-network 60` |
 | `create-dir` | Create project, ScoreMore, and log directories if missing | — | `mini-bowling.sh create-dir` |
 | `install-cli` | Install `arduino-cli` to `~/.local/bin` if missing | — | `mini-bowling.sh install-cli` |
@@ -277,6 +279,8 @@ mini-bowling.sh rollback 2
 mini-bowling.sh pi-status
 mini-bowling.sh wifi-status
 mini-bowling.sh vnc-status
+mini-bowling.sh vnc-setup start
+mini-bowling.sh vnc-setup enable-autostart
 mini-bowling.sh pi-update
 mini-bowling.sh pi-reboot
 mini-bowling.sh pi-shutdown
@@ -556,9 +560,15 @@ mini-bowling.sh pi-reboot      # reboot with 5-second countdown (Ctrl+C to cance
 mini-bowling.sh pi-shutdown    # shutdown with 5-second countdown
 mini-bowling.sh wifi-status    # interface, IP, SSID, signal, internet reachability
 mini-bowling.sh vnc-status     # VNC installation, service state, displays, autostart
+mini-bowling.sh vnc-setup start             # start VNC now
+mini-bowling.sh vnc-setup stop              # stop VNC
+mini-bowling.sh vnc-setup enable-autostart  # start VNC automatically on boot
+mini-bowling.sh vnc-setup disable-autostart # disable VNC autostart
 ```
 
 `vnc-status` checks five things: whether a VNC server is installed (RealVNC, TigerVNC, TightVNC, or x11vnc), whether the service is running (via systemd or process scan), which displays and ports are active, whether autostart is configured, and the LAN IP/port to connect from a VNC viewer. If anything is misconfigured it prints the suggested fix command inline.
+
+`vnc-setup` uses `systemctl` to start/stop/enable/disable the VNC service. If no systemd service is found it falls back to `vncserver :1` for start, and `raspi-config` for autostart. The `start` and `stop` subcommands are logged; `vnc-status` is read-only and is not logged.
 
 `pi-update`, `pi-reboot`, and `pi-shutdown` require `sudo`. `pi-status`, `wifi-status`, and `vnc-status` are read-only.
 

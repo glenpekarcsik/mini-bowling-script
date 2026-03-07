@@ -302,26 +302,20 @@ print_status() {
 
     local sm_pid
     sm_pid=$(pgrep -f "ScoreMore.AppImage" 2>/dev/null | head -1 || true)
-    if [[ -n "$sm_pid" ]]; then
-        local sm_ver=""
-        if [[ -L "$SYMLINK_PATH" ]]; then
-            sm_ver=$(basename "$(readlink -f "$SYMLINK_PATH" 2>/dev/null)" | \
-                sed -n "s/^ScoreMore-\\(.*\\)-${ARCH}\\.${EXTENSION}$/\\1/p")
-        fi
-        if [[ -n "$sm_ver" ]]; then
-            echo "ScoreMore   : running v${sm_ver} (pid $sm_pid)"
-        else
-            echo "ScoreMore   : running (pid $sm_pid)"
-        fi
-    else
-        echo "ScoreMore   : not running"
+    local sm_ver=""
+    if [[ -L "$SYMLINK_PATH" ]]; then
+        sm_ver=$(basename "$(readlink -f "$SYMLINK_PATH" 2>/dev/null)" | \
+            sed -n "s/^ScoreMore-\\(.*\\)-${ARCH}\\.${EXTENSION}$/\\1/p")
     fi
+    local sm_autostart="no autostart"
+    [[ -f "$HOME/.config/autostart/scoremore.desktop" ]] && sm_autostart="autostart enabled"
 
-    local desktop_file="$HOME/.config/autostart/scoremore.desktop"
-    if [[ -f "$desktop_file" ]]; then
-        echo "SM Autostart: enabled"
+    if [[ -n "$sm_pid" ]]; then
+        local sm_label="running"
+        [[ -n "$sm_ver" ]] && sm_label="running v${sm_ver}"
+        echo "ScoreMore   : $sm_label  (pid $sm_pid, $sm_autostart)"
     else
-        echo "SM Autostart: disabled"
+        echo "ScoreMore   : not running  ($sm_autostart)"
     fi
 
     local cron_marker_sched="# mini-bowling scheduled deploy"
@@ -331,9 +325,9 @@ print_status() {
         local cron_min cron_hour
         cron_min=$(echo "$cron_entry" | awk '{print $1}')
         cron_hour=$(echo "$cron_entry" | awk '{print $2}')
-        printf "Scheduled   : daily at %02d:%02d\n" "$cron_hour" "$cron_min"
+        printf "Deploy sched: daily at %02d:%02d  (Everything)\n" "$cron_hour" "$cron_min"
     else
-        echo "Scheduled   : not set"
+        echo "Deploy sched: not set"
     fi
 
     local cron_marker_wd="# mini-bowling watchdog"
@@ -383,14 +377,19 @@ print_status() {
 
     # Item 5: show last deploy result
     if [[ -f "$DEPLOY_STATUS_FILE" ]]; then
-        local started finished result
-        started=$(sed -n '1p' "$DEPLOY_STATUS_FILE")
-        finished=$(sed -n '2p' "$DEPLOY_STATUS_FILE")
-        result=$(sed -n '3p' "$DEPLOY_STATUS_FILE")
+        local started finished result dep_commit dep_subject
+        started=$(sed -n '1p'    "$DEPLOY_STATUS_FILE")
+        finished=$(sed -n '2p'   "$DEPLOY_STATUS_FILE")
+        result=$(sed -n '3p'     "$DEPLOY_STATUS_FILE")
+        dep_commit=$(sed -n '4p' "$DEPLOY_STATUS_FILE")
+        dep_subject=$(sed -n '5p' "$DEPLOY_STATUS_FILE")
+        local dep_label=""
+        [[ -n "$dep_commit" ]] && dep_label=" — $dep_commit"
+        [[ -n "$dep_subject" ]] && dep_label="$dep_label: $dep_subject"
         if [[ "$result" == "OK" ]]; then
-            echo "Last deploy : ${GREEN}OK${NC} at $finished"
+            echo -e "Last deploy : ${GREEN}OK${NC} at $finished${dep_label}"
         else
-            echo -e "Last deploy : ${RED}FAILED${NC} (started $started)"
+            echo -e "Last deploy : ${RED}FAILED${NC} (started $started)${dep_label}"
         fi
     else
         echo "Last deploy : no record"
@@ -496,6 +495,13 @@ list_available_sketches() {
     echo "  $PROJECT_DIR"
     echo "----------------------------------------------"
 
+    # Load last-upload record if available
+    local last_sketch="" last_time=""
+    if [[ -f "$ARDUINO_STATUS_FILE" ]]; then
+        last_sketch=$(sed -n '1p' "$ARDUINO_STATUS_FILE")
+        last_time=$(sed -n '2p'   "$ARDUINO_STATUS_FILE")
+    fi
+
     local count=0
     local found=false
 
@@ -516,7 +522,12 @@ list_available_sketches() {
             local ino_name="<no .ino found>"
             [[ -n "$ino_file" ]] && ino_name=$(basename "$ino_file")
 
-            printf "  %2d)  %-24s   →  %s\n" "$count" "$sketch_name" "$ino_name"
+            if [[ -n "$last_sketch" && "$sketch_name" == "$last_sketch" ]]; then
+                printf "  %2d)  %-24s   →  %-30s  ${GREEN}← last uploaded %s${NC}\n" \
+                    "$count" "$sketch_name" "$ino_name" "$last_time"
+            else
+                printf "  %2d)  %-24s   →  %s\n" "$count" "$sketch_name" "$ino_name"
+            fi
         fi
     done < <(find . -mindepth 1 -maxdepth 1 -type d -print0 2>/dev/null | sort -z)
 
@@ -726,10 +737,19 @@ cmd_deploy() {
     # Item 5: write status file on exit (success or failure)
     local deploy_start
     deploy_start=$(date '+%Y-%m-%d %H:%M:%S')
+    local deploy_commit
+    deploy_commit=$(git -C "$PROJECT_DIR" rev-parse --short HEAD 2>/dev/null || echo 'unknown')
+    local deploy_subject
+    deploy_subject=$(git -C "$PROJECT_DIR" log -1 --format='%s' 2>/dev/null || echo '')
     _write_deploy_status() {
         local result="$1"
         mkdir -p "$LOG_DIR" 2>/dev/null || true
-        printf "%s\n%s\n%s\n" "$deploy_start" "$(date '+%Y-%m-%d %H:%M:%S')" "$result" \
+        printf "%s\n%s\n%s\n%s\n%s\n" \
+            "$deploy_start" \
+            "$(date '+%Y-%m-%d %H:%M:%S')" \
+            "$result" \
+            "$deploy_commit" \
+            "$deploy_subject" \
             > "$DEPLOY_STATUS_FILE"
     }
     trap '_write_deploy_status "FAILED"' ERR
@@ -922,9 +942,16 @@ backup_config() {
     local old_backups
     mapfile -t old_backups < <(find "$backup_dir" -name "mini-bowling-backup-*.tar.gz" \
                                     2>/dev/null | sort -r | tail -n +11)
-    for f in "${old_backups[@]}"; do
-        rm -f -- "$f" && echo "→ Removed old backup: $(basename "$f")"
-    done
+    if [[ ${#old_backups[@]} -gt 0 ]]; then
+        for f in "${old_backups[@]}"; do
+            rm -f -- "$f" && echo "→ Removed old backup: $(basename "$f")"
+        done
+        echo "  Pruned ${#old_backups[@]} old backup(s)"
+    fi
+
+    local total_backups
+    total_backups=$(find "$backup_dir" -name "mini-bowling-backup-*.tar.gz" 2>/dev/null | wc -l)
+    echo "  Total backups kept: $total_backups / 10"
 }
 
 # Item 10: doctor — check all required dependencies are present
@@ -1584,9 +1611,31 @@ serial_log() {
             echo "Starting serial logging on $port..."
             echo "Log file: $serial_log_file"
 
+            mkdir -p "$LOG_DIR"
             stty -F "$port" "$BAUD_RATE" cs8 -cstopb -parenb raw -echo 2>/dev/null || \
                 stty -f "$port" "$BAUD_RATE" cs8 -cstopb -parenb raw -echo 2>/dev/null || true
-            cat "$port" >> "$serial_log_file" 2>&1 &
+
+            # Wrapper that auto-rotates the log at 10MB to prevent filling the SD card
+            {
+                while true; do
+                    # Rotate if current log exceeds 10MB
+                    if [[ -f "$serial_log_file" ]]; then
+                        local size_bytes
+                        size_bytes=$(stat -c%s "$serial_log_file" 2>/dev/null || stat -f%z "$serial_log_file" 2>/dev/null || echo 0)
+                        if (( size_bytes > 10485760 )); then
+                            local rotated="$serial_log_file.$(date '+%H%M%S').old"
+                            mv "$serial_log_file" "$rotated"
+                            echo "$(date '+%Y-%m-%d %H:%M:%S')  [log rotated — previous: $(basename "$rotated")]" >> "$serial_log_file"
+                        fi
+                    fi
+                    # Read one line from port; if port disappears, pause and retry
+                    if ! IFS= read -r line < "$port" 2>/dev/null; then
+                        sleep 2
+                        continue
+                    fi
+                    echo "$line" >> "$serial_log_file"
+                done
+            } &
             local bg_pid=$!
             disown
             echo $bg_pid > "$pid_file"

@@ -134,13 +134,12 @@ Project dir : /home/gpekarcsik/Documents/Bowling/Arduino/mini-bowling
 Port        : /dev/ttyACM0
 Arduino     : detected
 Sketch      : Everything  (a1b2c3d — Fix pin debounce timing)  @ 2026-03-07 02:31:04
-ScoreMore   : running (pid 82131)
-SM Autostart: enabled
+ScoreMore   : running v1.8.0  (pid 82131, autostart enabled)
 Watchdog    : enabled (every 5 min)
 Serial log  : not running
-Scheduled   : daily at 02:30
+Deploy sched: daily at 02:30  (Everything)
 VNC         : running — 192.168.1.42:5900  (autostart enabled)
-Last deploy : no record
+Last deploy : OK at 2026-03-07 02:31:08 — a1b2c3d: Fix pin debounce timing
 Done.
 ```
 

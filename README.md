@@ -308,6 +308,11 @@ mini-bowling.sh logs clean
 # Update the script itself from GitHub
 mini-bowling.sh update-script
 
+# ── Testing ───────────────────────────────────────────────────────────────────
+
+# Run unit tests after any change (no hardware needed)
+./mini-bowling-test.sh unit
+
 # ── Setup & configuration ─────────────────────────────────────────────────────
 
 # First-time setup wizard
@@ -485,7 +490,7 @@ If either check fails, the script exits immediately with a clear error and Score
 
 ## Arduino Serial Logging
 
-`serial-log` runs `arduino-cli monitor` in the background and appends serial output to a daily log file at `~/Documents/Bowling/logs/arduino-serial-YYYY-MM-DD.log`. Useful for diagnosing hardware issues without being physically present.
+`serial-log` captures Arduino serial output to a daily log file at `~/Documents/Bowling/logs/arduino-serial-YYYY-MM-DD.log`. Useful for diagnosing hardware issues without being physically present.
 
 ```bash
 mini-bowling.sh serial-log start    # start background logging
@@ -493,6 +498,8 @@ mini-bowling.sh serial-log status   # check if running
 mini-bowling.sh serial-log tail     # live follow (Ctrl+C to exit)
 mini-bowling.sh serial-log stop     # stop
 ```
+
+`console` opens an interactive serial monitor in the foreground using `stty` + `cat` directly on the port — no extra tools required. The baud rate is controlled by `BAUD_RATE` in the configuration section (default: `9600`) — change it to match your sketch's `Serial.begin()` call.
 
 `console` cannot run while `serial-log` is active — both use the same serial port. Running `console` while logging is active exits with a message to run `serial-log stop` first.
 
@@ -568,6 +575,30 @@ SD cards on Raspberry Pis can fail without warning — run `backup` before major
 
 `mini-bowling.sh disk-cleanup` removes all non-active ScoreMore AppImages, Arduino build caches (`build/`, `~/.cache/arduino`, `~/.arduino15/cache`), and log files older than 30 days. It also reports the total size of the backups directory.
 
+## Testing
+
+`mini-bowling-test.sh` is a unit test suite that verifies script behaviour after changes — no Arduino or ScoreMore installation required for the unit tests.
+
+```bash
+# Unit tests only — no hardware needed, runs in ~15 seconds
+./mini-bowling-test.sh unit
+
+# Integration tests — requires Arduino connected and arduino-cli installed
+./mini-bowling-test.sh integration
+
+# Run everything
+./mini-bowling-test.sh
+
+# Verbose output — shows full command output on failures
+./mini-bowling-test.sh unit -v
+```
+
+The unit tests cover: syntax validation, `version` output, unknown command handling, version string parsing, port verification logic, `upload` ScoreMore lifecycle flags (non-`Everything` sketches don't touch ScoreMore), `logs` subcommands, `deploy --dry-run`, serial-log conflict guard, `scoremore-history`, `disk-cleanup`, `wait-for-network`, and backup file creation — 40 tests in total.
+
+The test script works by sourcing `mini-bowling.sh` with `MINI_BOWLING_SOURCED=1`, which suppresses `main()` execution and allows individual functions to be called and tested in isolation. Hardware-touching functions (`arduino-cli`, `kill_scoremore_gracefully`, etc.) are replaced with lightweight mocks for unit tests.
+
+Run the unit tests after making any change to the script to confirm nothing is broken before deploying to the Pi.
+
 ## Script Version
 
 `mini-bowling.sh version` shows version, install path, last-modified date, and shell version. The version number is `SCRIPT_VERSION` at the top of the script — bump it when deploying updates.
@@ -586,6 +617,7 @@ All configuration variables are at the top of the script:
 | `SCOREMORE_DIR` | `~/Documents/Bowling/ScoreMore` | Where downloaded AppImages are saved |
 | `LOG_DIR` | `~/Documents/Bowling/logs` | Where daily log files are written |
 | `SYMLINK_PATH` | `~/Desktop/ScoreMore.AppImage` | Desktop symlink maintained by `download` |
+| `BAUD_RATE` | `9600` | Serial baud rate used by `console` and `serial-log` — must match `Serial.begin()` in your sketch |
 | `ARCH` | `arm64` | AppImage architecture suffix |
 
 The `PORT` variable can be overridden at runtime without editing the script:
@@ -626,3 +658,4 @@ Folder names are used as the sketch identifier (`--FolderName`). Only direct sub
 | `~/Documents/Bowling/logs/arduino-serial-YYYY-MM-DD.log` | Arduino serial log |
 | `~/Documents/Bowling/logs/.last-deploy-status` | Last deploy pass/fail record |
 | `~/Documents/Bowling/backups/mini-bowling-backup-*.tar.gz` | Backups |
+| `./mini-bowling-test.sh` | Unit test suite (lives alongside the script) |

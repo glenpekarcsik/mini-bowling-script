@@ -79,7 +79,8 @@ skip() {
 # Run a command and capture output + exit code without killing the test script
 run() {
     local out
-    out=$("$@" 2>&1) && _run_exit=0 || _run_exit=$?
+    _run_exit=0
+    out=$("$@" 2>&1) || _run_exit=$?
     _run_out="$out"
 }
 
@@ -182,6 +183,15 @@ if [[ ! -f "$SCRIPT" ]]; then
     exit 1
 fi
 
+# Fix Windows line endings if present (causes exit 126 when calling via bash)
+if cat "$SCRIPT" | grep -qP '\r'; then
+    echo -e "${YELLOW}Warning: fixing Windows line endings in $SCRIPT${NC}"
+    sed -i 's/\r//' "$SCRIPT"
+fi
+
+# Ensure the script is executable and readable
+chmod a+rx "$SCRIPT" 2>/dev/null || true
+
 # ── UNIT TESTS ────────────────────────────────────────────────────────────────
 
 if [[ "$RUN_MODE" == "all" || "$RUN_MODE" == "unit" ]]; then
@@ -201,7 +211,7 @@ pass "script can be sourced without immediate error"
 suite "version command"
 # ─────────────────────────────────────────────────────────────────────────────
 
-run "$SCRIPT" version
+run bash "$SCRIPT" version
 assert_exit   "version exits 0"                  0
 assert_output_contains "version prints SCRIPT_VERSION" "version"
 assert_output_contains "version prints Script path"    "Script path"
@@ -211,7 +221,7 @@ assert_output_contains "version prints Shell"          "Shell"
 suite "Unknown command handling"
 # ─────────────────────────────────────────────────────────────────────────────
 
-run "$SCRIPT" xyzzy_nonexistent_command
+run bash "$SCRIPT" xyzzy_nonexistent_command
 assert_exit "unknown command exits non-zero" 1
 assert_output_contains "unknown command prints error" "Unknown command"
 
@@ -524,7 +534,7 @@ $SCOREMORE_PRESENT  && pass "ScoreMore symlink exists"  || skip "ScoreMore symli
 suite "Integration — preflight"
 
 if $ARDUINO_PRESENT && $ARDUINO_CLI_PRESENT; then
-    run "$SCRIPT" preflight
+    run bash "$SCRIPT" preflight
     assert_exit "preflight exits 0 with Arduino connected" 0
     assert_output_contains "preflight checks Arduino port" "Arduino"
 else
@@ -533,7 +543,7 @@ fi
 
 suite "Integration — status"
 
-run "$SCRIPT" status
+run bash "$SCRIPT" status
 assert_exit "status exits 0" 0
 assert_output_contains "status shows Port line"       "Port"
 assert_output_contains "status shows ScoreMore line"  "ScoreMore"
@@ -541,7 +551,7 @@ assert_output_contains "status shows Last deploy"     "Last deploy"
 
 suite "Integration — doctor"
 
-run "$SCRIPT" doctor
+run bash "$SCRIPT" doctor
 assert_exit "doctor exits 0" 0
 assert_output_contains "doctor checks git"       "git"
 assert_output_contains "doctor checks curl"      "curl"
@@ -550,7 +560,7 @@ assert_output_contains "doctor checks arduino-cli" "arduino-cli"
 suite "Integration — check-update"
 
 if ping -c 1 -W 3 8.8.8.8 >/dev/null 2>&1; then
-    run "$SCRIPT" check-update
+    run bash "$SCRIPT" check-update
     assert_exit "check-update exits 0 with network" 0
 else
     skip "check-update" "no network"
@@ -559,7 +569,7 @@ fi
 suite "Integration — upload dry path (--list-sketches)"
 
 if $ARDUINO_CLI_PRESENT; then
-    run "$SCRIPT" upload --list-sketches
+    run bash "$SCRIPT" upload --list-sketches
     assert_exit "upload --list-sketches exits 0" 0
 else
     skip "upload --list-sketches" "arduino-cli not installed"

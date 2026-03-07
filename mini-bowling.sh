@@ -2263,4 +2263,5 @@ _dispatch() {
     esac
 }
 
-main "$@"
+# Allow sourcing for unit tests without running main
+[[ "${MINI_BOWLING_SOURCED:-}" == "1" ]] || main "$@"

@@ -758,16 +758,16 @@ show_console() {
         die "Serial logging is already running (pid $(cat "$pid_file")) and is using the port. Run 'mini-bowling.sh serial-log stop' first."
     fi
 
+    require_arduino_cli
+
     local port
     port=$(find_arduino_port) || die "No Arduino serial port found — is the Arduino connected?"
 
-    echo "Opening serial console on $port at ${BAUD_RATE} baud (Ctrl+C to exit)"
+    echo "Opening serial console on $port at ${BAUD_RATE} baud"
+    echo "Type to send. Ctrl+C to exit."
     echo "----------------------------------------"
 
-    # Configure the port and read directly — works without any extra tools
-    stty -F "$port" "$BAUD_RATE" cs8 -cstopb -parenb raw -echo 2>/dev/null || \
-        stty -f "$port" "$BAUD_RATE" cs8 -cstopb -parenb raw -echo 2>/dev/null || true
-    cat "$port"
+    exec arduino-cli monitor -p "$port" --fqbn "$BOARD" --config "baudrate=$BAUD_RATE"
 }
 
 board_list() {

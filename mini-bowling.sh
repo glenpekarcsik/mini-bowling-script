@@ -303,9 +303,9 @@ print_status() {
 
     local desktop_file="$HOME/.config/autostart/scoremore.desktop"
     if [[ -f "$desktop_file" ]]; then
-        echo "Autostart   : enabled"
+        echo "SM Autostart: enabled"
     else
-        echo "Autostart   : disabled"
+        echo "SM Autostart: disabled"
     fi
 
     local cron_marker_sched="# mini-bowling scheduled deploy"

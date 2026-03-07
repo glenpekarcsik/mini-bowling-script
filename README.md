@@ -134,7 +134,7 @@ Project dir : /home/gpekarcsik/Documents/Bowling/Arduino/mini-bowling
 Port        : /dev/ttyACM0
 Arduino     : detected
 ScoreMore   : running (pid 82131)
-Autostart   : enabled
+SM Autostart: enabled
 Watchdog    : enabled (every 5 min)
 Serial log  : not running
 Scheduled   : daily at 02:30

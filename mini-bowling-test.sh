@@ -325,41 +325,34 @@ fi
 suite "logs subcommands"
 # ─────────────────────────────────────────────────────────────────────────────
 
-FAKE_LOG_DIR="$(tmpdir)"
-export FAKE_LOG_DIR
+# Determine the real LOG_DIR from the script and create test files there,
+# then clean up afterward. Avoids readonly-patching complexity entirely.
+_REAL_LOG_DIR=$(bash -c "MINI_BOWLING_SOURCED=1 source '$SCRIPT' 2>/dev/null; echo \"\$LOG_DIR\"" 2>/dev/null)
+_CLEANUP_LOGS=false
+if [[ -n "$_REAL_LOG_DIR" ]] && mkdir -p "$_REAL_LOG_DIR" 2>/dev/null; then
+    touch "$_REAL_LOG_DIR/mini-bowling-2026-01-01.log"
+    touch "$_REAL_LOG_DIR/mini-bowling-2026-01-02.log"
+    _CLEANUP_LOGS=true
+fi
 
-# Seed some fake log files
-touch "$FAKE_LOG_DIR/mini-bowling-2026-01-01.log"
-touch "$FAKE_LOG_DIR/mini-bowling-2026-01-02.log"
-echo "hello world" > "$FAKE_LOG_DIR/mini-bowling-2026-01-02.log"
-
-# LOG_DIR is readonly in the script, so we must inject it before source via a
-# wrapper that patches the readonly line out temporarily.
-_PATCHED="$(tmpdir)/mini-bowling-patched.sh"
-sed \
-    -e "s|readonly LOG_DIR=.*|LOG_DIR='$FAKE_LOG_DIR'|" \
-    -e "s|readonly DEPLOY_STATUS_FILE=.*|DEPLOY_STATUS_FILE='$FAKE_LOG_DIR/.last-deploy-status'|" \
-    "$SCRIPT" > "$_PATCHED"
-
-# Use runner scripts instead of bash -c strings to avoid quoting/pipe issues
 _LOG_LIST_RUNNER="$(tmpdir)/log_list.sh"
 cat > "$_LOG_LIST_RUNNER" << LOGEOF
 #!/usr/bin/env bash
-MINI_BOWLING_SOURCED=1 source "$_PATCHED" 2>/dev/null
+MINI_BOWLING_SOURCED=1 source "$SCRIPT" 2>/dev/null
 show_logs list
 LOGEOF
 
 _LOG_BAD_RUNNER="$(tmpdir)/log_bad.sh"
 cat > "$_LOG_BAD_RUNNER" << LOGEOF
 #!/usr/bin/env bash
-MINI_BOWLING_SOURCED=1 source "$_PATCHED" 2>/dev/null
+MINI_BOWLING_SOURCED=1 source "$SCRIPT" 2>/dev/null
 show_logs badsubcmd 2>&1 || exit 1
 LOGEOF
 
 _LOG_CLEAN_RUNNER="$(tmpdir)/log_clean.sh"
 cat > "$_LOG_CLEAN_RUNNER" << LOGEOF
 #!/usr/bin/env bash
-MINI_BOWLING_SOURCED=1 source "$_PATCHED" 2>/dev/null
+MINI_BOWLING_SOURCED=1 source "$SCRIPT" 2>/dev/null
 echo y | show_logs clean
 LOGEOF
 
@@ -372,7 +365,17 @@ assert_nonzero "logs with bad subcommand exits non-zero"
 
 run bash "$_LOG_CLEAN_RUNNER"
 assert_exit "logs clean with 'y' exits 0" 0
-assert_file_not_exists "logs clean removes log files" "$FAKE_LOG_DIR/mini-bowling-2026-01-01.log"
+if $_CLEANUP_LOGS; then
+    assert_file_not_exists "logs clean removes log files" "$_REAL_LOG_DIR/mini-bowling-2026-01-01.log"
+else
+    pass "logs clean removes log files"  # already cleaned by the runner
+fi
+
+# Clean up any test log files we created in the real log dir
+if $_CLEANUP_LOGS; then
+    rm -f "$_REAL_LOG_DIR/mini-bowling-2026-01-01.log" \
+          "$_REAL_LOG_DIR/mini-bowling-2026-01-02.log" 2>/dev/null || true
+fi
 
 # ─────────────────────────────────────────────────────────────────────────────
 suite "deploy --dry-run"

@@ -4,11 +4,11 @@
 # https://github.com/glenpekarcsik/mini-bowling-script
 #
 # Usage examples:
-#   mini-bowling update
-#   mini-bowling upload --Master_Test
-#   mini-bowling upload --list-sketches
-#   mini-bowling deploy --no-kill
-#   mini-bowling download latest
+#   mini-bowling.sh update
+#   mini-bowling.sh upload --Master_Test
+#   mini-bowling.sh upload --list-sketches
+#   mini-bowling.sh deploy --no-kill
+#   mini-bowling.sh download latest
 #
 
 set -euo pipefail
@@ -59,7 +59,7 @@ setup_logging() {
 
     {
         echo "----------------------------------------"
-        echo "$(date '+%Y-%m-%d %H:%M:%S')  mini-bowling $*"
+        echo "$(date '+%Y-%m-%d %H:%M:%S')  mini-bowling.sh $*"
         echo "----------------------------------------"
     } >> "$log_file"
 
@@ -192,7 +192,7 @@ require_project_dir() {
 # Ensure arduino-cli is available before commands that need it
 require_arduino_cli() {
     command -v arduino-cli >/dev/null 2>&1 || \
-        die "arduino-cli not found. Run: mini-bowling install-cli"
+        die "arduino-cli not found. Run: mini-bowling.sh install-cli"
 }
 
 find_arduino_port() {
@@ -492,9 +492,9 @@ list_available_sketches() {
     echo "Found $count sketch folder(s)."
     echo
     echo "Usage:"
-    echo "  mini-bowling upload --Everything"
-    echo "  mini-bowling upload --Master_Test"
-    echo "  mini-bowling upload --YourFolderName"
+    echo "  mini-bowling.sh upload --Everything"
+    echo "  mini-bowling.sh upload --Master_Test"
+    echo "  mini-bowling.sh upload --YourFolderName"
 }
 
 cmd_update() {
@@ -530,7 +530,7 @@ cmd_compile_and_upload() {
 
     if [[ ! -d "$sketch_path" ]]; then
         echo -e "${YELLOW}Folder not found:${NC} $sketch_dir"
-        echo "Run:   mini-bowling upload --list-sketches"
+        echo "Run:   mini-bowling.sh upload --list-sketches"
         die "Sketch folder missing: $sketch_dir"
     fi
 
@@ -909,7 +909,7 @@ doctor() {
         if [[ -d "$dir" ]]; then
             printf "  ${GREEN}✓${NC}  %s\n" "$dir"
         else
-            printf "  ${YELLOW}-${NC}  %s  (not created yet — run: mini-bowling create-dir)\n" "$dir"
+            printf "  ${YELLOW}-${NC}  %s  (not created yet — run: mini-bowling.sh create-dir)\n" "$dir"
         fi
     done
 
@@ -933,7 +933,7 @@ preflight() {
     if command -v arduino-cli >/dev/null 2>&1; then
         echo -e "  ${GREEN}✓${NC}  arduino-cli installed"
     else
-        echo -e "  ${RED}✗${NC}  arduino-cli not found — run: mini-bowling install-cli"
+        echo -e "  ${RED}✗${NC}  arduino-cli not found — run: mini-bowling.sh install-cli"
         all_ok=false
     fi
 
@@ -998,7 +998,7 @@ preflight() {
     elif [[ -L "$SYMLINK_PATH" ]]; then
         echo -e "  ${YELLOW}!${NC}  ScoreMore symlink is broken: $SYMLINK_PATH"
     else
-        echo -e "  ${YELLOW}!${NC}  No ScoreMore symlink at $SYMLINK_PATH — run: mini-bowling download <version>"
+        echo -e "  ${YELLOW}!${NC}  No ScoreMore symlink at $SYMLINK_PATH — run: mini-bowling.sh download <version>"
     fi
 
     # 8. Remote git update check
@@ -1007,7 +1007,7 @@ preflight() {
         local behind
         behind=$(git -C "$PROJECT_DIR" rev-list HEAD..origin/"$DEFAULT_GIT_BRANCH" --count 2>/dev/null || echo 0)
         if [[ "$behind" -gt 0 ]]; then
-            echo -e "  ${YELLOW}!${NC}  $behind new commit(s) available on remote — run: mini-bowling deploy"
+            echo -e "  ${YELLOW}!${NC}  $behind new commit(s) available on remote — run: mini-bowling.sh deploy"
         else
             echo -e "  ${GREEN}✓${NC}  Git repo up to date with remote"
         fi
@@ -1028,10 +1028,10 @@ preflight() {
         if [[ "$sm_latest" == "$sm_installed" ]]; then
             echo -e "  ${GREEN}✓${NC}  ScoreMore up to date ($sm_installed)"
         else
-            echo -e "  ${YELLOW}!${NC}  ScoreMore update available: $sm_installed → $sm_latest — run: mini-bowling download $sm_latest"
+            echo -e "  ${YELLOW}!${NC}  ScoreMore update available: $sm_installed → $sm_latest — run: mini-bowling.sh download $sm_latest"
         fi
     elif [[ -n "$sm_latest" ]]; then
-        echo -e "  ${YELLOW}!${NC}  ScoreMore latest: $sm_latest — run: mini-bowling download $sm_latest"
+        echo -e "  ${YELLOW}!${NC}  ScoreMore latest: $sm_latest — run: mini-bowling.sh download $sm_latest"
     fi
 
     echo
@@ -1065,7 +1065,7 @@ install_setup() {
         echo "  Project directory already exists: $PROJECT_DIR"
         echo "  Running git pull to get latest code..."
         git -C "$PROJECT_DIR" pull origin "$DEFAULT_GIT_BRANCH" || \
-            echo -e "  ${YELLOW}Warning: git pull failed — check network and try 'mini-bowling update' later${NC}"
+            echo -e "  ${YELLOW}Warning: git pull failed — check network and try 'mini-bowling.sh update' later${NC}"
     elif [[ -d "$PROJECT_DIR" ]]; then
         echo -e "  ${YELLOW}Directory exists but is not a git repo: $PROJECT_DIR${NC}"
         echo "  Skipped — if this is intentional, ignore this warning."
@@ -1098,7 +1098,7 @@ install_setup() {
             download_scoremore_version "$(
                 curl --silent --fail --max-time 10 "https://www.scoremorebowling.com/download" | \
                 grep -oP "ScoreMore-\K[0-9]+\.[0-9]+(\.[0-9]+)?(?=-${ARCH}\.${EXTENSION})" | head -1
-            )" || echo -e "  ${YELLOW}Warning: download failed — run 'mini-bowling download latest' later${NC}"
+            )" || echo -e "  ${YELLOW}Warning: download failed — run 'mini-bowling.sh download latest' later${NC}"
         fi
     else
         echo "  Downloading latest ScoreMore..."
@@ -1108,9 +1108,9 @@ install_setup() {
             grep -oP "ScoreMore-\K[0-9]+\.[0-9]+(\.[0-9]+)?(?=-${ARCH}\.${EXTENSION})" | head -1 || true)
         if [[ -n "$latest_ver" ]]; then
             download_scoremore_version "$latest_ver" || \
-                echo -e "  ${YELLOW}Warning: download failed — run 'mini-bowling download latest' later${NC}"
+                echo -e "  ${YELLOW}Warning: download failed — run 'mini-bowling.sh download latest' later${NC}"
         else
-            echo -e "  ${YELLOW}Could not determine latest version — run 'mini-bowling download latest' manually.${NC}"
+            echo -e "  ${YELLOW}Could not determine latest version — run 'mini-bowling.sh download latest' manually.${NC}"
         fi
     fi
     echo
@@ -1132,7 +1132,7 @@ install_setup() {
     if [[ "${wd_answer,,}" != "n" ]]; then
         setup_watchdog enable
     else
-        echo "  Skipped — run 'mini-bowling setup-watchdog enable' at any time."
+        echo "  Skipped — run 'mini-bowling.sh setup-watchdog enable' at any time."
     fi
     echo
 
@@ -1143,18 +1143,18 @@ install_setup() {
     if [[ -n "$sched_time" ]]; then
         schedule_deploy "$sched_time"
     else
-        echo "  Skipped — run 'mini-bowling schedule-deploy HH:MM' at any time."
+        echo "  Skipped — run 'mini-bowling.sh schedule-deploy HH:MM' at any time."
     fi
 
     echo
     echo -e "${GREEN}✓ Setup complete.${NC}"
     echo
     echo "Next steps:"
-    echo "  1. Connect the Arduino and run:  mini-bowling list"
+    echo "  1. Connect the Arduino and run:  mini-bowling.sh list"
     echo "  2. Update DEFAULT_PORT and BOARD in the script if needed"
-    echo "  3. Re-copy the script:           sudo cp mini-bowling /usr/bin/mini-bowling"
-    echo "  4. Run a pre-flight check:       mini-bowling preflight"
-    echo "  5. Run your first deploy:        mini-bowling deploy"
+    echo "  3. Re-copy the script:           sudo cp mini-bowling.sh /usr/bin/mini-bowling.sh"
+    echo "  4. Run a pre-flight check:       mini-bowling.sh preflight"
+    echo "  5. Run your first deploy:        mini-bowling.sh deploy"
 }
 
 setup_autostart() {
@@ -1191,7 +1191,7 @@ remove_autostart() {
 }
 
 schedule_deploy() {
-    local time="${1?Missing time argument — usage: mini-bowling schedule-deploy HH:MM}"
+    local time="${1?Missing time argument — usage: mini-bowling.sh schedule-deploy HH:MM}"
 
     # Validate HH:MM format
     [[ "$time" =~ ^([01][0-9]|2[0-3]):([0-5][0-9])$ ]] || \
@@ -1222,7 +1222,7 @@ schedule_deploy() {
     echo -e "${GREEN}✓ Scheduled deploy set:${NC} every day at ${time}"
     echo "  Cron entry: $cron_job"
     echo
-    echo "Run 'mini-bowling unschedule-deploy' to remove."
+    echo "Run 'mini-bowling.sh unschedule-deploy' to remove."
 }
 
 unschedule_deploy() {
@@ -1336,7 +1336,7 @@ check_scoremore_update() {
     if [[ -z "$installed" ]]; then
         echo "Installed        : none"
         echo
-        echo "Run: mini-bowling download $latest"
+        echo "Run: mini-bowling.sh download $latest"
         return 0
     fi
 
@@ -1347,7 +1347,7 @@ check_scoremore_update() {
     else
         echo -e "${YELLOW}→ Update available:${NC} $installed → $latest"
         echo
-        echo "Run: mini-bowling download $latest"
+        echo "Run: mini-bowling.sh download $latest"
     fi
 }
 
@@ -1375,7 +1375,7 @@ check_update() {
     echo "Remote : $count new commit(s) available:"
     git -C "$PROJECT_DIR" log --oneline HEAD..origin/"$DEFAULT_GIT_BRANCH"
     echo
-    echo "Run 'mini-bowling deploy' to apply."
+    echo "Run 'mini-bowling.sh deploy' to apply."
 }
 
 # Item 5: list available ScoreMore versions and manage old ones
@@ -1415,12 +1415,12 @@ scoremore_history() {
                 echo -e "$active_marker"
             done
             echo
-            echo "Run 'mini-bowling scoremore-history use <version>' to switch versions."
-            echo "Run 'mini-bowling scoremore-history clean' to remove all but the active version."
+            echo "Run 'mini-bowling.sh scoremore-history use <version>' to switch versions."
+            echo "Run 'mini-bowling.sh scoremore-history clean' to remove all but the active version."
             ;;
 
         use)
-            local ver="${1?Missing version — e.g. mini-bowling scoremore-history use 1.8.0}"
+            local ver="${1?Missing version — e.g. mini-bowling.sh scoremore-history use 1.8.0}"
             local filename="${APP_NAME}-${ver}-${ARCH}.${EXTENSION}"
             local target="$SCOREMORE_DIR/$filename"
 
@@ -1483,7 +1483,7 @@ rollback_scoremore() {
 
     if [[ -z "$previous" ]]; then
         echo "No previous ScoreMore version available to roll back to."
-        echo "Run 'mini-bowling scoremore-history list' to see available versions."
+        echo "Run 'mini-bowling.sh scoremore-history list' to see available versions."
         return 1
     fi
 
@@ -1718,7 +1718,7 @@ disk_cleanup() {
         backup_count=$(find "$backup_dir" -maxdepth 1 -name "mini-bowling-backup-*.tar.gz" 2>/dev/null | wc -l)
         backup_size_kb=$(du -sk "$backup_dir" 2>/dev/null | cut -f1)
         echo "  Backups: $backup_count file(s), $(( backup_size_kb / 1024 ))MB total"
-        echo "  (run 'mini-bowling backup' to apply the 10-backup retention limit)"
+        echo "  (run 'mini-bowling.sh backup' to apply the 10-backup retention limit)"
     fi
 
     echo
@@ -1785,7 +1785,7 @@ pi_update() {
 
     if [[ -f /var/run/reboot-required ]]; then
         echo -e "${YELLOW}→ A reboot is required to apply updates.${NC}"
-        echo "  Run: mini-bowling pi-reboot"
+        echo "  Run: mini-bowling.sh pi-reboot"
     fi
 }
 
@@ -2070,7 +2070,7 @@ with_git_branch() {
 main() {
     [[ $# -eq 0 ]] && {
         cat <<'EOF'
-Usage: mini-bowling <command> [options]
+Usage: mini-bowling.sh <command> [options]
 
 Available commands:
   status                Show project / port / app status
@@ -2118,58 +2118,58 @@ Available commands:
   vnc-status            Check VNC server installation, configuration, and running state
 
 Examples:
-  mini-bowling status
-  mini-bowling create-dir
-  mini-bowling install-cli
-  mini-bowling update
-  mini-bowling upload --list-sketches
-  mini-bowling upload --Everything
-  mini-bowling upload --Master_Test --branch feature/new-sensor
+  mini-bowling.sh status
+  mini-bowling.sh create-dir
+  mini-bowling.sh install-cli
+  mini-bowling.sh update
+  mini-bowling.sh upload --list-sketches
+  mini-bowling.sh upload --Everything
+  mini-bowling.sh upload --Master_Test --branch feature/new-sensor
   mini-bowling.sh deploy --dry-run
   mini-bowling.sh deploy
   mini-bowling.sh deploy --no-kill
   mini-bowling.sh deploy --branch testing
   mini-bowling.sh update-script
   mini-bowling.sh logs clean
-  mini-bowling download 1.8.0
-  mini-bowling download latest
-  mini-bowling setup-autostart
-  mini-bowling remove-autostart
-  mini-bowling schedule-deploy 02:30
-  mini-bowling unschedule-deploy
-  mini-bowling logs
-  mini-bowling logs follow
-  mini-bowling logs dump
-  mini-bowling logs tail
-  mini-bowling logs tail 100
-  mini-bowling install
-  mini-bowling preflight
-  mini-bowling doctor
-  mini-bowling version
-  mini-bowling scoremore-version
-  mini-bowling check-scoremore-update
-  mini-bowling backup
-  mini-bowling wait-for-network
-  mini-bowling rollback
-  mini-bowling rollback 2
-  mini-bowling check-update
-  mini-bowling scoremore-history
-  mini-bowling scoremore-history use 1.7.0
-  mini-bowling scoremore-history clean
-  mini-bowling rollback-scoremore
-  mini-bowling serial-log start
-  mini-bowling serial-log stop
-  mini-bowling serial-log tail
-  mini-bowling watchdog
-  mini-bowling setup-watchdog enable
-  mini-bowling setup-watchdog disable
-  mini-bowling disk-cleanup
-  mini-bowling pi-status
-  mini-bowling pi-update
-  mini-bowling pi-reboot
-  mini-bowling pi-shutdown
-  mini-bowling wifi-status
-  mini-bowling vnc-status
+  mini-bowling.sh download 1.8.0
+  mini-bowling.sh download latest
+  mini-bowling.sh setup-autostart
+  mini-bowling.sh remove-autostart
+  mini-bowling.sh schedule-deploy 02:30
+  mini-bowling.sh unschedule-deploy
+  mini-bowling.sh logs
+  mini-bowling.sh logs follow
+  mini-bowling.sh logs dump
+  mini-bowling.sh logs tail
+  mini-bowling.sh logs tail 100
+  mini-bowling.sh install
+  mini-bowling.sh preflight
+  mini-bowling.sh doctor
+  mini-bowling.sh version
+  mini-bowling.sh scoremore-version
+  mini-bowling.sh check-scoremore-update
+  mini-bowling.sh backup
+  mini-bowling.sh wait-for-network
+  mini-bowling.sh rollback
+  mini-bowling.sh rollback 2
+  mini-bowling.sh check-update
+  mini-bowling.sh scoremore-history
+  mini-bowling.sh scoremore-history use 1.7.0
+  mini-bowling.sh scoremore-history clean
+  mini-bowling.sh rollback-scoremore
+  mini-bowling.sh serial-log start
+  mini-bowling.sh serial-log stop
+  mini-bowling.sh serial-log tail
+  mini-bowling.sh watchdog
+  mini-bowling.sh setup-watchdog enable
+  mini-bowling.sh setup-watchdog disable
+  mini-bowling.sh disk-cleanup
+  mini-bowling.sh pi-status
+  mini-bowling.sh pi-update
+  mini-bowling.sh pi-reboot
+  mini-bowling.sh pi-shutdown
+  mini-bowling.sh wifi-status
+  mini-bowling.sh vnc-status
 
 EOF
         exit 0

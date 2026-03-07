@@ -32,6 +32,7 @@ readonly ARCH="arm64"
 readonly EXTENSION="AppImage"
 
 readonly SYMLINK_PATH="$HOME/Desktop/ScoreMore.AppImage"
+readonly BAUD_RATE="9600"
 
 readonly LOG_DIR="$HOME/Documents/Bowling/logs"
 readonly DEPLOY_STATUS_FILE="$LOG_DIR/.last-deploy-status"
@@ -566,10 +567,10 @@ cmd_compile_and_upload() {
     echo "  Path: $sketch_path"
     echo "  Port: $port"
 
-    local timeout_cmd=""
-    command -v timeout >/dev/null 2>&1 && timeout_cmd="timeout 120"
+    local -a timeout_cmd=()
+    command -v timeout >/dev/null 2>&1 && timeout_cmd=(timeout 120)
 
-    arduino-cli compile --upload \
+    "${timeout_cmd[@]}" arduino-cli compile --upload \
         --port "$port" \
         --fqbn "$BOARD" \
         "$sketch_path" || {
@@ -707,17 +708,22 @@ cmd_deploy() {
 }
 
 show_console() {
-    require_arduino_cli
-
-    # Item 3: warn if serial-log is already using the port
+    # Warn if serial-log is already using the port
     local pid_file="/tmp/mini-bowling-serial.pid"
     if [[ -f "$pid_file" ]] && kill -0 "$(cat "$pid_file")" 2>/dev/null; then
-        die "Serial logging is already running (pid $(cat "$pid_file")) and is using the port. Run 'mini-bowling serial-log stop' first."
+        die "Serial logging is already running (pid $(cat "$pid_file")) and is using the port. Run 'mini-bowling.sh serial-log stop' first."
     fi
 
     local port
     port=$(find_arduino_port) || die "No Arduino serial port found — is the Arduino connected?"
-    arduino-cli monitor --port "$port" --fqbn "$BOARD" || true
+
+    echo "Opening serial console on $port at ${BAUD_RATE} baud (Ctrl+C to exit)"
+    echo "----------------------------------------"
+
+    # Configure the port and read directly — works without any extra tools
+    stty -F "$port" "$BAUD_RATE" cs8 -cstopb -parenb raw -echo 2>/dev/null || \
+        stty -f "$port" "$BAUD_RATE" cs8 -cstopb -parenb raw -echo 2>/dev/null || true
+    cat "$port"
 }
 
 board_list() {
@@ -1296,10 +1302,10 @@ cmd_rollback() {
     kill_scoremore_gracefully
 
     echo "→ Compiling + uploading Everything sketch..."
-    local timeout_cmd=""
-    command -v timeout >/dev/null 2>&1 && timeout_cmd="timeout 120"
+    local -a timeout_cmd=()
+    command -v timeout >/dev/null 2>&1 && timeout_cmd=(timeout 120)
 
-    arduino-cli compile --upload \
+    "${timeout_cmd[@]}" arduino-cli compile --upload \
         --port "$port" \
         --fqbn "$BOARD" \
         "${PROJECT_DIR}/Everything" || {
@@ -1532,8 +1538,9 @@ serial_log() {
             echo "Starting serial logging on $port..."
             echo "Log file: $serial_log_file"
 
-            arduino-cli monitor --port "$port" --fqbn "$BOARD" \
-                >> "$serial_log_file" 2>&1 &
+            stty -F "$port" "$BAUD_RATE" cs8 -cstopb -parenb raw -echo 2>/dev/null || \
+                stty -f "$port" "$BAUD_RATE" cs8 -cstopb -parenb raw -echo 2>/dev/null || true
+            cat "$port" >> "$serial_log_file" 2>&1 &
             local bg_pid=$!
             disown
             echo $bg_pid > "$pid_file"
@@ -2166,8 +2173,18 @@ _dispatch() {
                 echo -e "${YELLOW}Using specified branch:${NC} $branch"
             fi
 
+            # Don't touch ScoreMore at all for non-Everything sketches —
+            # it's a dev/test upload and the app should be left as-is.
+            if [[ "$sketch" != "Everything" ]]; then
+                kill_app="false"
+            fi
+
             with_git_branch "$branch" cmd_compile_and_upload "$sketch" "$kill_app"
-            start_scoremore
+            if [[ "$sketch" == "Everything" ]]; then
+                start_scoremore
+            else
+                echo "ScoreMore left as-is (sketch is '$sketch', not 'Everything')"
+            fi
             ;;
         deploy)
             cmd_deploy "$@"

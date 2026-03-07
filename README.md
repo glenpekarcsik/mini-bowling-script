@@ -30,7 +30,7 @@ This script simplifies common tasks when developing and deploying code for a min
 - Configure ScoreMore to auto-start on login (`setup-autostart` / `remove-autostart`)
 
 **Diagnostics & Monitoring**
-- Status overview — port, Arduino detection, ScoreMore version + state, autostart, watchdog, serial log, schedule, last deploy result (`status`)
+- Status overview — port, Arduino detection, ScoreMore version + state, autostart, watchdog, serial log, schedule, VNC state, last deploy result (`status`)
 - Pre-flight check before deploying — 9 checks including ScoreMore and git update availability (`preflight`)
 - Dependency checker (`doctor`)
 - Arduino serial output logging to file in the background (`serial-log`)
@@ -138,6 +138,7 @@ Autostart   : enabled
 Watchdog    : enabled (every 5 min)
 Serial log  : not running
 Scheduled   : daily at 02:30
+VNC         : running — 192.168.1.42:5900  (autostart enabled)
 Last deploy : no record
 Done.
 ```

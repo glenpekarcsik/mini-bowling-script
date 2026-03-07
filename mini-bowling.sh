@@ -336,6 +336,35 @@ print_status() {
         echo "Serial log  : not running"
     fi
 
+    # VNC status — single line summary
+    local vnc_line="not installed"
+    if command -v vncserver >/dev/null 2>&1 || command -v x11vnc >/dev/null 2>&1; then
+        local vnc_svc_running=false
+        for svc in vncserver-x11-serviced vncserver-virtuald tigervnc x11vnc vncserver; do
+            if systemctl is-active --quiet "$svc" 2>/dev/null; then
+                vnc_svc_running=true; break
+            fi
+        done
+        local vnc_proc_running=false
+        pgrep -f "Xvnc\|vncserver\|x11vnc" >/dev/null 2>&1 && vnc_proc_running=true
+
+        local vnc_autostart="no autostart"
+        for svc in vncserver-x11-serviced vncserver-virtuald tigervnc x11vnc; do
+            if systemctl is-enabled --quiet "$svc" 2>/dev/null; then
+                vnc_autostart="autostart enabled"; break
+            fi
+        done
+
+        if $vnc_svc_running || $vnc_proc_running; then
+            local lan_ip
+            lan_ip=$(hostname -I 2>/dev/null | awk '{print $1}')
+            vnc_line="running — ${lan_ip:-<Pi IP>}:5900  ($vnc_autostart)"
+        else
+            vnc_line="installed, not running  ($vnc_autostart)"
+        fi
+    fi
+    echo "VNC         : $vnc_line"
+
     # Item 5: show last deploy result
     if [[ -f "$DEPLOY_STATUS_FILE" ]]; then
         local started finished result

@@ -30,7 +30,7 @@ This script simplifies common tasks when developing and deploying code for a min
 - Configure ScoreMore to auto-start on login (`setup-autostart` / `remove-autostart`)
 
 **Diagnostics & Monitoring**
-- Status overview — port, Arduino detection, ScoreMore version + state, autostart, watchdog, serial log, schedule, VNC state, last deploy result (`status`)
+- Status overview — port, Arduino detection, last-uploaded sketch + git commit, ScoreMore version + state, autostart, watchdog, serial log, schedule, VNC state, last deploy result (`status`)
 - Pre-flight check before deploying — 9 checks including ScoreMore and git update availability (`preflight`)
 - Dependency checker (`doctor`)
 - Arduino serial output logging to file in the background (`serial-log`)
@@ -133,6 +133,7 @@ $ mini-bowling.sh status
 Project dir : /home/gpekarcsik/Documents/Bowling/Arduino/mini-bowling
 Port        : /dev/ttyACM0
 Arduino     : detected
+Sketch      : Everything  (a1b2c3d — Fix pin debounce timing)  @ 2026-03-07 02:31:04
 ScoreMore   : running (pid 82131)
 SM Autostart: enabled
 Watchdog    : enabled (every 5 min)

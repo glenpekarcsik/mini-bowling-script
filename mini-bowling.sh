@@ -36,6 +36,7 @@ readonly BAUD_RATE="9600"
 
 readonly LOG_DIR="$HOME/Documents/Bowling/logs"
 readonly DEPLOY_STATUS_FILE="$LOG_DIR/.last-deploy-status"
+readonly ARDUINO_STATUS_FILE="$LOG_DIR/.last-arduino-upload"
 
 # Colors
 readonly RED='\033[0;31m'
@@ -283,6 +284,21 @@ print_status() {
     echo "Project dir : $PROJECT_DIR"
     echo "Port        : $port"
     [[ -c "$port" ]] && echo "Arduino     : detected" || echo "Arduino     : NOT detected"
+
+    if [[ -f "$ARDUINO_STATUS_FILE" ]]; then
+        local ard_sketch ard_time ard_commit ard_msg
+        ard_sketch=$(sed -n '1p' "$ARDUINO_STATUS_FILE")
+        ard_time=$(sed -n '2p'   "$ARDUINO_STATUS_FILE")
+        ard_commit=$(sed -n '3p' "$ARDUINO_STATUS_FILE")
+        ard_msg=$(sed -n '4p'    "$ARDUINO_STATUS_FILE")
+        if [[ -n "$ard_msg" ]]; then
+            echo "Sketch      : $ard_sketch  ($ard_commit — $ard_msg)  @ $ard_time"
+        else
+            echo "Sketch      : $ard_sketch  ($ard_commit)  @ $ard_time"
+        fi
+    else
+        echo "Sketch      : unknown (no upload recorded)"
+    fi
 
     local sm_pid
     sm_pid=$(pgrep -f "ScoreMore.AppImage" 2>/dev/null | head -1 || true)
@@ -599,6 +615,15 @@ cmd_compile_and_upload() {
         [[ $exit_code -eq 124 ]] && die "arduino-cli timed out after 120s — Arduino may be locked up"
         die "arduino-cli failed (exit $exit_code)"
     }
+
+    # Record what was just uploaded so 'status' can report it
+    mkdir -p "$LOG_DIR"
+    {
+        echo "$sketch_dir"
+        echo "$(date '+%Y-%m-%d %H:%M:%S')"
+        echo "$(git -C "$PROJECT_DIR" rev-parse --short HEAD 2>/dev/null || echo 'unknown')"
+        echo "$(git -C "$PROJECT_DIR" log -1 --format='%s' 2>/dev/null || echo '')"
+    } > "$ARDUINO_STATUS_FILE"
 
     # Item 2: restart serial logging if it was running before the upload
     if [[ "${serial_was_running:-false}" == "true" ]]; then
@@ -1325,6 +1350,15 @@ cmd_rollback() {
         [[ $exit_code -eq 124 ]] && die "arduino-cli timed out after 120s — Arduino may be locked up"
         die "arduino-cli failed (exit $exit_code)"
     }
+
+    # Record what was uploaded
+    mkdir -p "$LOG_DIR"
+    {
+        echo "Everything"
+        echo "$(date '+%Y-%m-%d %H:%M:%S')"
+        echo "$(git -C "$PROJECT_DIR" rev-parse --short HEAD 2>/dev/null || echo 'unknown')"
+        echo "$(git -C "$PROJECT_DIR" log -1 --format='%s' 2>/dev/null || echo '')"
+    } > "$ARDUINO_STATUS_FILE"
 
     start_scoremore
 }

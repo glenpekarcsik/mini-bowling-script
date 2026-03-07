@@ -648,6 +648,7 @@ run bash "$SCRIPT" status
 assert_exit "status exits 0" 0
 assert_output_contains "status shows Port line"       "Port"
 assert_output_contains "status shows ScoreMore line"  "ScoreMore"
+assert_output_contains "status shows Sketch line"     "Sketch"
 assert_output_contains "status shows Last deploy"     "Last deploy"
 assert_output_contains "status shows VNC line"        "VNC"
 

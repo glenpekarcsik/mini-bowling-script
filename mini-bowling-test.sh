@@ -96,21 +96,25 @@ assert_exit() {
 
 assert_output_contains() {
     local name="$1" pattern="$2"
-    if echo "$_run_out" | grep -q "$pattern"; then
+    local clean_out
+    clean_out=$(echo "$_run_out" | sed 's/\x1b\[[0-9;]*m//g')
+    if echo "$clean_out" | grep -q "$pattern"; then
         pass "$name"
     else
         fail "$name" "expected output to contain: $pattern"
-        $VERBOSE && echo "       output: $_run_out"
+        $VERBOSE && echo "       output: $clean_out"
     fi
 }
 
 assert_output_not_contains() {
     local name="$1" pattern="$2"
-    if ! echo "$_run_out" | grep -q "$pattern"; then
+    local clean_out
+    clean_out=$(echo "$_run_out" | sed 's/\x1b\[[0-9;]*m//g')
+    if ! echo "$clean_out" | grep -q "$pattern"; then
         pass "$name"
     else
         fail "$name" "output should NOT contain: $pattern"
-        $VERBOSE && echo "       output: $_run_out"
+        $VERBOSE && echo "       output: $clean_out"
     fi
 }
 
@@ -191,6 +195,20 @@ fi
 
 # Ensure the script is executable and readable
 chmod a+rx "$SCRIPT" 2>/dev/null || true
+
+# Inject the MINI_BOWLING_SOURCED guard if this is an older version without it.
+# The guard prevents main() from running when the script is sourced by tests.
+if ! grep -q "MINI_BOWLING_SOURCED" "$SCRIPT"; then
+    echo -e "${YELLOW}Note: injecting MINI_BOWLING_SOURCED sourcing guard into script${NC}"
+    # Replace bare 'main "$@"' at end of file with guarded version
+    sed -i 's/^main "\$@"$/[[ "${MINI_BOWLING_SOURCED:-}" == "1" ]] || main "$@"/' "$SCRIPT"
+    # If that didn't match (different quoting), append the guard as a fallback
+    if ! grep -q "MINI_BOWLING_SOURCED" "$SCRIPT"; then
+        echo '' >> "$SCRIPT"
+        echo '# Allow sourcing for unit tests without running main' >> "$SCRIPT"
+        echo '[[ "${MINI_BOWLING_SOURCED:-}" == "1" ]] || main "$@"' >> "$SCRIPT"
+    fi
+fi
 
 # ── UNIT TESTS ────────────────────────────────────────────────────────────────
 
@@ -338,21 +356,21 @@ fi
 _LOG_LIST_RUNNER="$(tmpdir)/log_list.sh"
 cat > "$_LOG_LIST_RUNNER" << LOGEOF
 #!/usr/bin/env bash
-MINI_BOWLING_SOURCED=1 source "$SCRIPT" 2>/dev/null
+MINI_BOWLING_SOURCED=1 source "$SCRIPT"
 show_logs list
 LOGEOF
 
 _LOG_BAD_RUNNER="$(tmpdir)/log_bad.sh"
 cat > "$_LOG_BAD_RUNNER" << LOGEOF
 #!/usr/bin/env bash
-MINI_BOWLING_SOURCED=1 source "$SCRIPT" 2>/dev/null
+MINI_BOWLING_SOURCED=1 source "$SCRIPT"
 show_logs badsubcmd 2>&1 || exit 1
 LOGEOF
 
 _LOG_CLEAN_RUNNER="$(tmpdir)/log_clean.sh"
 cat > "$_LOG_CLEAN_RUNNER" << LOGEOF
 #!/usr/bin/env bash
-MINI_BOWLING_SOURCED=1 source "$SCRIPT" 2>/dev/null
+MINI_BOWLING_SOURCED=1 source "$SCRIPT"
 echo y | show_logs clean
 LOGEOF
 
@@ -385,17 +403,21 @@ FAKE_PROJECT_DIR="$(tmpdir)/project"
 mkdir -p "$FAKE_PROJECT_DIR/.git" "$FAKE_PROJECT_DIR/Everything"
 touch "$FAKE_PROJECT_DIR/Everything/Everything.ino"
 
-_DRY_PATCHED="$(tmpdir)/mini-bowling-dryrun.sh"
-sed \
-    -e "s|readonly PROJECT_DIR=.*|PROJECT_DIR='$FAKE_PROJECT_DIR'|" \
-    -e "s|readonly LOG_DIR=.*|LOG_DIR='$(tmpdir)'|" \
-    -e "s|readonly DEPLOY_STATUS_FILE=.*|DEPLOY_STATUS_FILE='/dev/null'|" \
-    "$SCRIPT" > "$_DRY_PATCHED"
-
+# Build a runner that overrides paths via environment/function overrides
+# rather than patching the script (more robust across versions)
 _DRY_RUNNER="$(tmpdir)/dryrun_runner.sh"
+_DRY_LOG="$(tmpdir)/logs"
+mkdir -p "$_DRY_LOG"
+
 cat > "$_DRY_RUNNER" << DRYEOF
 #!/usr/bin/env bash
-MINI_BOWLING_SOURCED=1 source "$_DRY_PATCHED" 2>/dev/null
+# Override PROJECT_DIR via the env var the script already supports
+export MINI_BOWLING_DIR="$FAKE_PROJECT_DIR"
+MINI_BOWLING_SOURCED=1 source "$SCRIPT"
+if ! declare -f cmd_deploy >/dev/null 2>&1; then
+    echo "ERROR: cmd_deploy not defined after source" >&2
+    exit 2
+fi
 ping()             { return 0; }
 find_arduino_port(){ echo '/dev/ttyACM0'; }
 git() {
@@ -429,7 +451,7 @@ echo "$$" > "$FAKE_PID_FILE"   # use current PID — it definitely exists
 _CONSOLE_RUNNER="$(tmpdir)/console_test.sh"
 cat > "$_CONSOLE_RUNNER" << CONSEOF
 #!/usr/bin/env bash
-MINI_BOWLING_SOURCED=1 source "$SCRIPT" 2>/dev/null
+MINI_BOWLING_SOURCED=1 source "$SCRIPT"
 find_arduino_port() { echo '/dev/ttyACM0'; }
 show_console() {
     local pid_file="$FAKE_PID_FILE"
@@ -473,7 +495,7 @@ suite "scoremore_history — list with no AppImages"
 _SM_HIST_RUNNER="$(tmpdir)/sm_hist.sh"
 cat > "$_SM_HIST_RUNNER" << SMEOF
 #!/usr/bin/env bash
-MINI_BOWLING_SOURCED=1 source "$_PATHS_PATCHED" 2>/dev/null
+MINI_BOWLING_SOURCED=1 source "$_PATHS_PATCHED"
 scoremore_history list
 SMEOF
 
@@ -488,7 +510,7 @@ suite "disk_cleanup — dry run of path construction"
 _DISK_RUNNER="$(tmpdir)/disk_cleanup.sh"
 cat > "$_DISK_RUNNER" << DISKEOF
 #!/usr/bin/env bash
-MINI_BOWLING_SOURCED=1 source "$_PATHS_PATCHED" 2>/dev/null
+MINI_BOWLING_SOURCED=1 source "$_PATHS_PATCHED"
 disk_cleanup
 DISKEOF
 
@@ -502,7 +524,7 @@ suite "wait-for-network — timeout logic"
 _WFN_FAIL="$(tmpdir)/wfn_fail.sh"
 cat > "$_WFN_FAIL" << WFNEOF
 #!/usr/bin/env bash
-MINI_BOWLING_SOURCED=1 source "$_PATHS_PATCHED" 2>/dev/null
+MINI_BOWLING_SOURCED=1 source "$SCRIPT"
 ping() { return 1; }
 wait_for_network 2
 WFNEOF
@@ -510,7 +532,7 @@ WFNEOF
 _WFN_PASS="$(tmpdir)/wfn_pass.sh"
 cat > "$_WFN_PASS" << WFNEOF
 #!/usr/bin/env bash
-MINI_BOWLING_SOURCED=1 source "$_PATHS_PATCHED" 2>/dev/null
+MINI_BOWLING_SOURCED=1 source "$SCRIPT"
 ping() { return 0; }
 wait_for_network 5
 WFNEOF
@@ -527,17 +549,18 @@ suite "backup — file creation"
 # ─────────────────────────────────────────────────────────────────────────────
 
 FAKE_BACKUP="$(tmpdir)"
+FAKE_PROJECT_BACKUP="$(tmpdir)"
+mkdir -p "$FAKE_PROJECT_BACKUP/Everything"
+touch "$FAKE_PROJECT_BACKUP/Everything/Everything.ino"
 
 _BACKUP_RUNNER="$(tmpdir)/backup_runner.sh"
 cat > "$_BACKUP_RUNNER" << BACKEOF
 #!/usr/bin/env bash
-MINI_BOWLING_SOURCED=1 source "$_PATHS_PATCHED" 2>/dev/null
 backup_dir="$FAKE_BACKUP"
 mkdir -p "\$backup_dir"
 ts=\$(date '+%Y-%m-%d_%H-%M-%S')
 out="\$backup_dir/mini-bowling-backup-\${ts}.tar.gz"
-tar -czf "\$out" -C "$_PROJECT2" . 2>/dev/null
-echo "Backup: \$out"
+tar -czf "\$out" -C "$FAKE_PROJECT_BACKUP" . 2>/dev/null && echo "Backup: \$out"
 BACKEOF
 
 run bash "$_BACKUP_RUNNER"

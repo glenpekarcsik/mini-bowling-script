@@ -42,6 +42,7 @@ readonly ARDUINO_STATUS_FILE="$LOG_DIR/.last-arduino-upload"
 readonly RED='\033[0;31m'
 readonly GREEN='\033[0;32m'
 readonly YELLOW='\033[1;33m'
+readonly BOLD='\033[1m'
 readonly NC='\033[0m'
 
 # ------------------------------------------------
@@ -958,6 +959,479 @@ show_console() {
 board_list() {
     require_arduino_cli
     arduino-cli board list
+}
+
+# ── restart ───────────────────────────────────────────────────────────────────
+# Kill ScoreMore and start it again in one command
+restart_scoremore() {
+    local sm_pid
+    sm_pid=$(pgrep -f "ScoreMore.AppImage" 2>/dev/null | head -1 || true)
+    if [[ -n "$sm_pid" ]]; then
+        echo "ScoreMore is running (pid $sm_pid) — stopping..."
+        kill_scoremore_gracefully
+    else
+        echo "ScoreMore is not running — starting fresh..."
+    fi
+    sleep 1
+    start_scoremore
+    sleep 2
+    sm_pid=$(pgrep -f "ScoreMore.AppImage" 2>/dev/null | head -1 || true)
+    if [[ -n "$sm_pid" ]]; then
+        echo -e "${GREEN}✓ ScoreMore restarted (pid $sm_pid)${NC}"
+    else
+        die "ScoreMore failed to start after restart"
+    fi
+}
+
+# ── status --watch ────────────────────────────────────────────────────────────
+# Continuously refresh status display
+watch_status() {
+    local interval="${1:-5}"
+    [[ "$interval" =~ ^[0-9]+$ ]] || die "Invalid interval: '$interval' — must be a number of seconds"
+    echo "Watching status (refreshing every ${interval}s — Ctrl+C to exit)"
+    while true; do
+        clear
+        echo -e "${BOLD}mini-bowling status${NC}  $(date '+%Y-%m-%d %H:%M:%S')  (Ctrl+C to exit)"
+        echo
+        print_status
+        sleep "$interval"
+    done
+}
+
+# ── repair ────────────────────────────────────────────────────────────────────
+# Check and fix common broken states automatically
+repair() {
+    echo "=== Repair ==="
+    echo
+    local fixed=0
+    local issues=0
+
+    # 1. Stale serial-log PID file
+    local serial_pid_file="/tmp/mini-bowling-serial.pid"
+    if [[ -f "$serial_pid_file" ]]; then
+        local spid
+        spid=$(cat "$serial_pid_file" 2>/dev/null || true)
+        if [[ -n "$spid" ]] && ! kill -0 "$spid" 2>/dev/null; then
+            echo "→ Removing stale serial-log PID file (pid $spid no longer exists)"
+            rm -f "$serial_pid_file"
+            fixed=$(( fixed + 1 ))
+        else
+            echo -e "  ${GREEN}✓${NC}  Serial-log PID file is clean"
+        fi
+    else
+        echo -e "  ${GREEN}✓${NC}  No serial-log PID file"
+    fi
+
+    # 2. Stale deploy lock
+    local deploy_lock="/tmp/mini-bowling-deploy.lock"
+    if [[ -f "$deploy_lock" ]]; then
+        local dlpid
+        dlpid=$(cat "$deploy_lock" 2>/dev/null || true)
+        if [[ -n "$dlpid" ]] && ! kill -0 "$dlpid" 2>/dev/null; then
+            echo "→ Removing stale deploy lock (pid $dlpid no longer exists)"
+            rm -f "$deploy_lock"
+            fixed=$(( fixed + 1 ))
+        else
+            echo -e "  ${GREEN}✓${NC}  Deploy lock is active (deploy in progress)"
+        fi
+    else
+        echo -e "  ${GREEN}✓${NC}  No deploy lock"
+    fi
+
+    # 3. Broken ScoreMore symlink
+    if [[ -L "$SYMLINK_PATH" ]] && [[ ! -f "$SYMLINK_PATH" ]]; then
+        echo -e "  ${RED}✗${NC}  ScoreMore symlink is broken: $SYMLINK_PATH"
+        echo "     Target: $(readlink "$SYMLINK_PATH")"
+        echo "     Fix: run 'mini-bowling.sh download latest' to re-download"
+        issues=$(( issues + 1 ))
+    elif [[ ! -L "$SYMLINK_PATH" ]]; then
+        echo -e "  ${YELLOW}!${NC}  No ScoreMore symlink at $SYMLINK_PATH"
+        echo "     Fix: run 'mini-bowling.sh download latest'"
+        issues=$(( issues + 1 ))
+    else
+        echo -e "  ${GREEN}✓${NC}  ScoreMore symlink OK"
+    fi
+
+    # 4. ScoreMore not running (but autostart is enabled)
+    local desktop_file="$HOME/.config/autostart/scoremore.desktop"
+    local sm_pid
+    sm_pid=$(pgrep -f "ScoreMore.AppImage" 2>/dev/null | head -1 || true)
+    if [[ -z "$sm_pid" ]] && [[ -f "$desktop_file" ]]; then
+        echo "→ ScoreMore not running but autostart is enabled — starting..."
+        start_scoremore
+        sleep 2
+        sm_pid=$(pgrep -f "ScoreMore.AppImage" 2>/dev/null | head -1 || true)
+        if [[ -n "$sm_pid" ]]; then
+            echo -e "  ${GREEN}✓${NC}  ScoreMore started (pid $sm_pid)"
+            fixed=$(( fixed + 1 ))
+        else
+            echo -e "  ${RED}✗${NC}  ScoreMore failed to start"
+            issues=$(( issues + 1 ))
+        fi
+    elif [[ -n "$sm_pid" ]]; then
+        echo -e "  ${GREEN}✓${NC}  ScoreMore running (pid $sm_pid)"
+    else
+        echo -e "  ${YELLOW}!${NC}  ScoreMore not running (autostart not enabled — OK if intentional)"
+    fi
+
+    # 5. Required directories missing
+    local dir_issues=0
+    for dir in "$PROJECT_DIR" "$SCOREMORE_DIR" "$LOG_DIR"; do
+        if [[ ! -d "$dir" ]]; then
+            echo "→ Creating missing directory: $dir"
+            mkdir -p "$dir" && echo -e "  ${GREEN}✓${NC}  Created: $dir" || \
+                echo -e "  ${RED}✗${NC}  Failed to create: $dir"
+            fixed=$(( fixed + 1 ))
+            dir_issues=$(( dir_issues + 1 ))
+        fi
+    done
+    [[ $dir_issues -eq 0 ]] && echo -e "  ${GREEN}✓${NC}  All required directories exist"
+
+    echo
+    if [[ $fixed -gt 0 && $issues -eq 0 ]]; then
+        echo -e "${GREEN}✓ Repaired $fixed issue(s) — everything OK${NC}"
+    elif [[ $fixed -eq 0 && $issues -eq 0 ]]; then
+        echo -e "${GREEN}✓ Nothing to repair — everything looks good${NC}"
+    else
+        echo -e "${YELLOW}Fixed $fixed issue(s), $issues require manual attention (see above)${NC}"
+    fi
+}
+
+# ── ports ─────────────────────────────────────────────────────────────────────
+# List all serial devices with more detail than arduino-cli board list
+show_ports() {
+    echo "=== Serial Ports ==="
+    echo
+
+    local found=false
+
+    # All candidate port device files
+    local candidates=()
+    for pattern in /dev/ttyACM* /dev/ttyUSB* /dev/ttyS* /dev/cu.usbmodem* /dev/serial/by-id/*; do
+        for f in $pattern; do
+            [[ -c "$f" ]] && candidates+=("$f")
+        done
+    done
+
+    if [[ ${#candidates[@]} -eq 0 ]]; then
+        echo "No serial port devices found."
+        echo "  Connect the Arduino and try again, or check: ls /dev/tty*"
+        return 0
+    fi
+
+    local configured_port="${PORT:-$DEFAULT_PORT}"
+
+    printf "  %-20s  %-8s  %-30s  %s\n" "PORT" "STATUS" "USB INFO" "NOTES"
+    printf "  %-20s  %-8s  %-30s  %s\n" "----" "------" "--------" "-----"
+
+    for port in "${candidates[@]}"; do
+        local status="unknown"
+        local usb_info=""
+        local notes=""
+
+        # Check if it's a character device we can access
+        if [[ ! -r "$port" ]]; then
+            status="no read"
+            notes="permission denied — check dialout group"
+        else
+            status="ok"
+        fi
+
+        # Mark the configured port
+        [[ "$port" == "$configured_port" ]] && notes="${notes:+$notes, }configured default"
+
+        # Try to get USB vendor/product info from sysfs
+        local dev_name
+        dev_name=$(basename "$port")
+        local usb_path
+        usb_path=$(find /sys/bus/usb/devices -name "tty:${dev_name}" 2>/dev/null | head -1)
+        if [[ -z "$usb_path" ]]; then
+            usb_path=$(find /sys/class/tty/"$dev_name"/device 2>/dev/null | head -1)
+        fi
+        if [[ -n "$usb_path" ]]; then
+            local vid pid manufacturer product
+            vid=$(cat "$(dirname "$usb_path")/../idVendor" 2>/dev/null || true)
+            pid=$(cat "$(dirname "$usb_path")/../idProduct" 2>/dev/null || true)
+            manufacturer=$(cat "$(dirname "$usb_path")/../manufacturer" 2>/dev/null || true)
+            product=$(cat "$(dirname "$usb_path")/../product" 2>/dev/null || true)
+            [[ -n "$vid" ]] && usb_info="${vid}:${pid}"
+            [[ -n "$product" ]] && usb_info="${usb_info:+$usb_info }$product"
+            [[ -n "$manufacturer" && -z "$product" ]] && usb_info="${usb_info:+$usb_info }$manufacturer"
+        fi
+
+        # Check if in use by serial-log
+        local serial_pid_file="/tmp/mini-bowling-serial.pid"
+        if [[ -f "$serial_pid_file" ]] && kill -0 "$(cat "$serial_pid_file")" 2>/dev/null; then
+            notes="${notes:+$notes, }in use by serial-log"
+        fi
+
+        printf "  %-20s  %-8s  %-30s  %s\n" "$port" "$status" "${usb_info:-—}" "${notes:-}"
+        found=true
+    done
+
+    echo
+    # Also run arduino-cli board list if available for recognised board names
+    if command -v arduino-cli >/dev/null 2>&1; then
+        echo "arduino-cli board list:"
+        arduino-cli board list 2>/dev/null | head -20 || echo "  (failed)"
+    fi
+}
+
+# ── info ──────────────────────────────────────────────────────────────────────
+# Dense single-screen summary combining status + pi-status
+show_info() {
+    local ts
+    ts=$(date '+%Y-%m-%d %H:%M:%S')
+    echo -e "${BOLD}=== mini-bowling info  $ts ===${NC}"
+    echo
+
+    # ── Hardware ──────────────────────────────────────────────────────────────
+    local port
+    port=$(find_arduino_port 2>/dev/null || echo "not found")
+    [[ -c "$port" ]] && \
+        echo -e "Arduino     : ${GREEN}detected${NC} on $port" || \
+        echo -e "Arduino     : ${RED}NOT detected${NC}"
+
+    # Sketch
+    if [[ -f "$ARDUINO_STATUS_FILE" ]]; then
+        local ard_sketch ard_time ard_commit
+        ard_sketch=$(sed -n '1p' "$ARDUINO_STATUS_FILE")
+        ard_time=$(sed -n '2p'   "$ARDUINO_STATUS_FILE")
+        ard_commit=$(sed -n '3p' "$ARDUINO_STATUS_FILE")
+        echo "Sketch      : $ard_sketch  ($ard_commit)  @ $ard_time"
+    else
+        echo "Sketch      : unknown"
+    fi
+
+    # ── ScoreMore ─────────────────────────────────────────────────────────────
+    local sm_pid
+    sm_pid=$(pgrep -f "ScoreMore.AppImage" 2>/dev/null | head -1 || true)
+    local sm_ver=""
+    if [[ -L "$SYMLINK_PATH" ]]; then
+        sm_ver=$(basename "$(readlink -f "$SYMLINK_PATH" 2>/dev/null)" | \
+            sed -n "s/^ScoreMore-\\(.*\\)-${ARCH}\\.${EXTENSION}$/\\1/p")
+    fi
+    if [[ -n "$sm_pid" ]]; then
+        echo -e "ScoreMore   : ${GREEN}running${NC} v${sm_ver:-?}  (pid $sm_pid)"
+    else
+        echo -e "ScoreMore   : ${RED}not running${NC}"
+    fi
+
+    # ── Last deploy ───────────────────────────────────────────────────────────
+    if [[ -f "$DEPLOY_STATUS_FILE" ]]; then
+        local dep_finished dep_result dep_commit dep_subject
+        dep_finished=$(sed -n '2p' "$DEPLOY_STATUS_FILE")
+        dep_result=$(sed -n '3p'   "$DEPLOY_STATUS_FILE")
+        dep_commit=$(sed -n '4p'   "$DEPLOY_STATUS_FILE")
+        dep_subject=$(sed -n '5p'  "$DEPLOY_STATUS_FILE")
+        if [[ "$dep_result" == "OK" ]]; then
+            echo -e "Last deploy : ${GREEN}OK${NC} at $dep_finished — $dep_commit${dep_subject:+: $dep_subject}"
+        else
+            echo -e "Last deploy : ${RED}FAILED${NC} at $dep_finished — $dep_commit${dep_subject:+: $dep_subject}"
+        fi
+    else
+        echo "Last deploy : no record"
+    fi
+
+    # ── Pi health ─────────────────────────────────────────────────────────────
+    echo
+    echo "Uptime      : $(uptime -p 2>/dev/null || uptime)"
+
+    if [[ -f /sys/class/thermal/thermal_zone0/temp ]]; then
+        local raw_temp temp_c
+        raw_temp=$(cat /sys/class/thermal/thermal_zone0/temp)
+        temp_c=$(( raw_temp / 1000 ))
+        if (( temp_c >= 80 )); then
+            echo -e "CPU Temp    : ${RED}${temp_c}°C CRITICAL${NC}"
+        elif (( temp_c >= 70 )); then
+            echo -e "CPU Temp    : ${YELLOW}${temp_c}°C (warm)${NC}"
+        else
+            echo -e "CPU Temp    : ${GREEN}${temp_c}°C${NC}"
+        fi
+    fi
+
+    local mem_total mem_free mem_used mem_pct
+    mem_total=$(awk '/MemTotal/    {print $2}' /proc/meminfo)
+    mem_free=$(awk  '/MemAvailable/{print $2}' /proc/meminfo)
+    mem_used=$(( mem_total - mem_free ))
+    mem_pct=$(( mem_used * 100 / mem_total ))
+    echo "Memory      : $(( mem_used / 1024 ))MB / $(( mem_total / 1024 ))MB  (${mem_pct}%)"
+
+    local disk_used disk_avail disk_pct
+    disk_used=$(df -k "$HOME" | awk 'NR==2 {print $3}')
+    disk_avail=$(df -k "$HOME" | awk 'NR==2 {print $4}')
+    disk_pct=$(df -k "$HOME" | awk 'NR==2 {print $5}')
+    echo "Disk        : $(( disk_used / 1024 ))MB used, $(( disk_avail / 1024 ))MB free  ($disk_pct)"
+
+    # ── Script version ────────────────────────────────────────────────────────
+    echo
+    echo "Script      : v${SCRIPT_VERSION}"
+}
+
+# ── tail-all ──────────────────────────────────────────────────────────────────
+# Interleave command log and Arduino serial log with timestamps
+tail_all() {
+    local n="${1:-50}"
+    [[ "$n" =~ ^[0-9]+$ ]] || die "Invalid line count: '$n' — must be a number"
+
+    local cmd_log="$LOG_DIR/mini-bowling-$(date '+%Y-%m-%d').log"
+    local serial_log_file="$LOG_DIR/arduino-serial-$(date '+%Y-%m-%d').log"
+
+    local have_cmd=false
+    local have_serial=false
+    [[ -f "$cmd_log" ]]         && have_cmd=true
+    [[ -f "$serial_log_file" ]] && have_serial=true
+
+    if ! $have_cmd && ! $have_serial; then
+        die "No log files found for today in $LOG_DIR"
+    fi
+
+    echo "=== Interleaved logs (last $n lines each) ==="
+    $have_cmd    && echo "  Command log : $cmd_log"
+    $have_serial && echo "  Serial log  : $serial_log_file"
+    echo "  [CMD] = command log  [ARD] = Arduino serial"
+    echo "----------------------------------------"
+
+    # Tag each line with source, then sort by timestamp prefix if present
+    {
+        $have_cmd    && tail -n "$n" "$cmd_log"         | sed 's/^/[CMD] /'
+        $have_serial && tail -n "$n" "$serial_log_file" | sed 's/^/[ARD] /'
+    } | sort --stable -k1,1
+
+    echo
+    echo "--- live tail (Ctrl+C to exit) ---"
+    echo
+
+    # Live follow both files simultaneously
+    local tail_args=()
+    $have_cmd    && tail_args+=("$cmd_log")
+    $have_serial && tail_args+=("$serial_log_file")
+
+    tail -f "${tail_args[@]}" | awk '
+        /^==> .* <==$/ { source=$0; next }
+        { tag = (source ~ /serial/) ? "[ARD]" : "[CMD]"; print tag " " $0 }
+    '
+}
+
+# ── test-upload ───────────────────────────────────────────────────────────────
+# Compile-only (no upload) to verify sketch builds cleanly
+cmd_test_upload() {
+    local sketch_dir="${1:-Everything}"
+
+    require_project_dir
+    require_arduino_cli
+
+    local sketch_path="${PROJECT_DIR}/${sketch_dir}"
+    if [[ ! -d "$sketch_path" ]]; then
+        echo -e "${YELLOW}Folder not found:${NC} $sketch_dir"
+        echo "Run:   mini-bowling.sh upload --list-sketches"
+        die "Sketch folder missing: $sketch_dir"
+    fi
+
+    if ! find "$sketch_path" -maxdepth 1 -type f -iname "*.ino" -print -quit 2>/dev/null | grep -q .; then
+        die "No .ino file found in $sketch_dir"
+    fi
+
+    echo "=== Test Compile: $sketch_dir ==="
+    echo "  Path  : $sketch_path"
+    echo "  Board : $BOARD"
+    echo
+
+    local -a timeout_cmd=()
+    command -v timeout >/dev/null 2>&1 && timeout_cmd=(timeout 120)
+
+    "${timeout_cmd[@]}" arduino-cli compile \
+        --fqbn "$BOARD" \
+        "$sketch_path" && \
+        echo -e "\n${GREEN}✓ Compile OK — $sketch_dir builds cleanly${NC}" || {
+        local exit_code=$?
+        [[ $exit_code -eq 124 ]] && die "Compile timed out after 120s"
+        die "Compile failed (exit $exit_code) — fix errors before deploying"
+    }
+}
+
+# ── scoremore-logs ────────────────────────────────────────────────────────────
+# Find and tail ScoreMore's own application logs
+scoremore_logs() {
+    local subcmd="${1:-show}"
+
+    # Electron apps typically log to ~/.config/<AppName>/logs/ or
+    # ~/.local/share/<AppName>/logs/ on Linux
+    local log_candidates=(
+        "$HOME/.config/ScoreMore/logs"
+        "$HOME/.config/scoremore/logs"
+        "$HOME/.local/share/ScoreMore/logs"
+        "$HOME/.local/share/scoremore/logs"
+    )
+
+    local log_dir=""
+    for candidate in "${log_candidates[@]}"; do
+        if [[ -d "$candidate" ]]; then
+            log_dir="$candidate"
+            break
+        fi
+    done
+
+    # Also check if ScoreMore is running and its process can hint at the path
+    if [[ -z "$log_dir" ]]; then
+        local sm_pid
+        sm_pid=$(pgrep -f "ScoreMore.AppImage" 2>/dev/null | head -1 || true)
+        if [[ -n "$sm_pid" ]]; then
+            local proc_log_dir
+            proc_log_dir=$(ls -d /proc/"$sm_pid"/fd 2>/dev/null && \
+                ls -la /proc/"$sm_pid"/fd 2>/dev/null | \
+                grep -oP '/\S+\.log' | grep -i score | head -1 | xargs dirname 2>/dev/null || true)
+            [[ -n "$proc_log_dir" && -d "$proc_log_dir" ]] && log_dir="$proc_log_dir"
+        fi
+    fi
+
+    if [[ -z "$log_dir" ]]; then
+        echo "ScoreMore log directory not found."
+        echo "Checked:"
+        for c in "${log_candidates[@]}"; do echo "  $c"; done
+        echo
+        echo "If ScoreMore is running, its logs may be at one of these paths."
+        echo "You can also check: ls ~/.config/ | grep -i score"
+        return 0
+    fi
+
+    case "$subcmd" in
+        show|list)
+            echo "=== ScoreMore Logs: $log_dir ==="
+            echo
+            local files
+            mapfile -t files < <(find "$log_dir" -maxdepth 2 -name "*.log" 2>/dev/null | sort -r | head -10)
+            if [[ ${#files[@]} -eq 0 ]]; then
+                echo "No .log files found in $log_dir"
+                return 0
+            fi
+            for f in "${files[@]}"; do
+                printf "  %-50s  %s\n" "$(basename "$f")" "$(du -h "$f" | cut -f1)"
+            done
+            echo
+            echo "Run: mini-bowling.sh scoremore-logs tail    (live tail latest log)"
+            echo "Run: mini-bowling.sh scoremore-logs dump    (full output of latest)"
+            ;;
+        tail)
+            local latest
+            latest=$(find "$log_dir" -maxdepth 2 -name "*.log" 2>/dev/null | sort -r | head -1)
+            [[ -z "$latest" ]] && die "No ScoreMore log files found in $log_dir"
+            echo "Tailing: $latest  (Ctrl+C to exit)"
+            echo "----------------------------------------"
+            tail -f "$latest"
+            ;;
+        dump)
+            local latest
+            latest=$(find "$log_dir" -maxdepth 2 -name "*.log" 2>/dev/null | sort -r | head -1)
+            [[ -z "$latest" ]] && die "No ScoreMore log files found in $log_dir"
+            echo "=== $latest ==="
+            echo
+            cat "$latest"
+            ;;
+        *)
+            die "Unknown subcommand: '$subcmd' — use show, tail, or dump"
+            ;;
+    esac
 }
 
 ensure_directories() {
@@ -2728,7 +3202,7 @@ Available commands:
   unschedule-deploy     Remove the scheduled daily deploy
   console               Arduino serial monitor (Ctrl+C to exit)
   list                  arduino-cli board list
-  logs [list|follow|dump|tail [N]|clean [--keep N]]
+  logs [list|follow|dump [--date YYYY-MM-DD]|tail [N] [--date YYYY-MM-DD]|clean [--keep N]]
                         List log files, view today's log, or delete all logs (default: list)
   update-script         Pull latest version of mini-bowling.sh from GitHub
   create-dir            Create required directories
@@ -2737,7 +3211,8 @@ Available commands:
   preflight             Check all conditions before deploying (--quick to skip network checks)
   doctor                Check all required dependencies are installed
   version               Show script version, path, and shell info
-  backup                Backup Arduino sketches and ScoreMore config
+  backup [--include-appimage]
+                        Backup Arduino sketches and ScoreMore config
   wait-for-network [N]  Wait up to N seconds for network (default: 30)
   rollback [N]          Roll back N git commits and re-upload (default: 1)
   check-update          Check if remote has new commits without pulling
@@ -2757,8 +3232,18 @@ Available commands:
   pi-shutdown           Shut down the Raspberry Pi (5 second countdown)
   wifi-status           Show network interface, IP, SSID, and internet reachability
   vnc-status            Check VNC server installation, configuration, and running state
-  vnc-setup <sub>      Start/stop VNC and enable/disable autostart on boot
+  vnc-setup <sub>       Start/stop VNC and enable/disable autostart on boot
                           start, stop, enable-autostart, disable-autostart
+  restart               Kill ScoreMore and start it again in one command
+  repair                Check and fix common broken states automatically
+  ports                 List all serial devices with USB info and status
+  info                  Dense single-screen summary: hardware + app state + Pi health
+  status [--watch [N]]  Show status (--watch refreshes every N seconds, default 5)
+  tail-all [N]          Interleave command log and Arduino serial log (live tail)
+  test-upload [--Sketch]
+                        Compile sketch without uploading to verify it builds
+  scoremore-logs [show|tail|dump]
+                        Find and view ScoreMore's own application logs
 
 Examples:
   mini-bowling.sh status
@@ -2834,7 +3319,9 @@ EOF
        && "$cmd" != "check-update" && "$cmd" != "scoremore-history" \
        && "$cmd" != "check-scoremore-update" \
        && "$cmd" != "serial-log" && "$cmd" != "setup-watchdog" \
-       && "$cmd" != "watchdog" && "$cmd" != "version" ]]; then
+       && "$cmd" != "watchdog" && "$cmd" != "version" \
+       && "$cmd" != "ports" && "$cmd" != "info" \
+       && "$cmd" != "tail-all" && "$cmd" != "scoremore-logs" ]]; then
         setup_logging "$cmd" "$@"
         prune_logs
     fi
@@ -2960,7 +3447,11 @@ _dispatch() {
             show_console
             ;;
         status)
-            print_status
+            if [[ "${1:-}" == "--watch" || "${1:-}" == "-w" ]]; then
+                watch_status "${2:-5}"
+            else
+                print_status
+            fi
             ;;
         list)
             board_list
@@ -3045,6 +3536,29 @@ _dispatch() {
             ;;
         update-script)
             update_script
+            ;;
+        restart)
+            restart_scoremore
+            ;;
+        repair)
+            repair
+            ;;
+        ports)
+            show_ports
+            ;;
+        info)
+            show_info
+            ;;
+        tail-all)
+            tail_all "$@"
+            ;;
+        test-upload)
+            local sketch="${1:-Everything}"
+            [[ "${1:-}" == --* ]] && sketch="${1#--}"
+            cmd_test_upload "$sketch"
+            ;;
+        scoremore-logs)
+            scoremore_logs "${1:-show}"
             ;;
         *)
             echo "Unknown command: $cmd" >&2

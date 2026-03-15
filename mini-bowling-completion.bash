@@ -38,6 +38,7 @@ _mini_bowling_complete() {
         wait-for-network create-dir install-cli
         pi-status pi-update pi-reboot pi-shutdown
         wifi-status vnc-status vnc-setup
+        restart repair ports info tail-all test-upload scoremore-logs
     "
 
     # ── Completion for second word (subcommands / flags) ──────────────────────
@@ -73,8 +74,38 @@ _mini_bowling_complete() {
             return 0
             ;;
 
-        deploy)
-            COMPREPLY=( $(compgen -W "--dry-run --no-kill --branch" -- "$cur") )
+        scoremore-logs)
+            COMPREPLY=( $(compgen -W "show list tail dump" -- "$cur") )
+            return 0
+            ;;
+
+        test-upload)
+            # Offer sketch folder names
+            local sketches=""
+            local script_path
+            script_path=$(command -v mini-bowling.sh 2>/dev/null)
+            if [[ -n "$script_path" ]]; then
+                local project_dir
+                project_dir=$(grep -m1 'PROJECT_DIR=' "$script_path" 2>/dev/null | \
+                    sed 's/.*PROJECT_DIR="\(.*\)"/\1/' | \
+                    sed "s|\$HOME|$HOME|g" | sed "s|~|$HOME|g" || true)
+                if [[ -n "$project_dir" && -d "$project_dir" ]]; then
+                    sketches=$(find "$project_dir" -mindepth 1 -maxdepth 1 -type d \
+                        ! -name '.*' ! -name 'build' ! -name 'cache' ! -name 'libraries' \
+                        -printf '--%f\n' 2>/dev/null | sort)
+                fi
+            fi
+            COMPREPLY=( $(compgen -W "$sketches" -- "$cur") )
+            return 0
+            ;;
+
+        status)
+            COMPREPLY=( $(compgen -W "--watch -w" -- "$cur") )
+            return 0
+            ;;
+
+        tail-all)
+            COMPREPLY=( $(compgen -W "50 100 200" -- "$cur") )
             return 0
             ;;
 

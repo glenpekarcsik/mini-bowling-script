@@ -14,8 +14,10 @@ This script simplifies common tasks when developing and deploying code for a min
 - Compile + upload selected sketch to Arduino, then restart ScoreMore
 - Port verification before upload — errors out before killing ScoreMore if Arduino is not reachable
 - Sketch existence verified before killing ScoreMore — a typo in `--FolderName` never takes ScoreMore down
+- Compile-only check before uploading — verify a sketch builds cleanly without touching hardware (`test-upload`)
 - Full deploy cycle (`deploy`) — wait for network → kill → pull → upload → restart ScoreMore, with pass/fail status recorded
 - Deploy lock file prevents the watchdog from restarting ScoreMore mid-deploy
+- Desktop notification via `notify-send` when deploy finishes — useful for unattended 2:30am deploys
 - Dry-run mode — preview what a deploy would do without making any changes (`deploy --dry-run`)
 - Roll back to a previous git commit and re-upload the last-used sketch (`rollback`)
 - Git operations with dirty-repo warning (`update`)
@@ -30,14 +32,21 @@ This script simplifies common tasks when developing and deploying code for a min
 - Check scoremorebowling.com for newer versions (`check-scoremore-update`)
 - Manage downloaded ScoreMore versions — list, switch, and roll back (`scoremore-history`, `rollback-scoremore`)
 - Graceful start/stop of ScoreMore (kills by AppImage path, cleans up orphaned Electron processes)
+- One-command restart — kill and relaunch ScoreMore instantly (`restart`)
 - ScoreMore launched with auto-detected display — works correctly over VNC and non-`:0` sessions
 - ScoreMore watchdog — auto-restart if ScoreMore crashes, skips restart if a deploy is in progress (`watchdog`, `setup-watchdog`)
+- View ScoreMore's own application logs (`scoremore-logs`)
 - Configure ScoreMore to auto-start on login (`setup-autostart` / `remove-autostart`)
 
 **Diagnostics & Monitoring**
 - Status overview — port, Arduino detection, last-uploaded sketch + git commit, git branch + remote state, ScoreMore version + state, autostart, watchdog, serial log, schedule, VNC state, last deploy result with commit (`status`)
+- Live-refreshing status with `status --watch [N]` — auto-updates every N seconds (default 5)
+- Dense single-screen summary combining hardware, app state, and Pi health in one view (`info`)
 - Pre-flight check before deploying — 9 checks including ScoreMore and git update availability, `--quick` skips network checks (`preflight`)
 - Dependency checker — required tools, optional tools, directories, `dialout` group membership, and re-login detection if group was added in current session (`doctor`)
+- Auto-repair of common broken states — stale PID files, broken symlink, missing dirs, ScoreMore not running (`repair`)
+- Serial port listing with USB vendor/product info, access status, and in-use detection (`ports`)
+- Interleaved live tail of command log and Arduino serial log (`tail-all`)
 - Arduino serial output logging to file in the background with 10MB auto-rotation and stale-PID cleanup on stop (`serial-log`)
 - Arduino serial console — blocked if serial logging is already active (`console`)
 - Deploy status tracking — pass/fail recorded after every deploy, visible in `status`
@@ -187,7 +196,7 @@ sudo cp mini-bowling.sh /usr/bin/mini-bowling.sh
 | Command | Description | Options / Arguments | Example Usage |
 |---|---|---|---|
 | `version` | Show script version, install path, last-modified date, shell version, and whether a newer version is available on GitHub | — | `mini-bowling.sh version` |
-| `status` | Show port, Arduino detection, ScoreMore version + state, watchdog, serial log, schedule, and last deploy result | — | `mini-bowling.sh status` |
+| `wait-for-network` | Wait up to N seconds for internet connectivity | `[N]` (default: 30) | `mini-bowling.sh wait-for-network 60` |
 | `install` | Guided 8-step setup wizard (directories, arduino-cli, git clone, ScoreMore download, autostart, doctor, watchdog, schedule) | — | `mini-bowling.sh install` |
 | `preflight` | Run 9 pre-deploy checks — Arduino, network, disk, CPU temp, git state, symlink, remote updates, ScoreMore version. Use `--quick` to skip the 3 network-dependent checks (3, 8, 9) for a fast local-only check | `--quick` \| `-q` | `mini-bowling.sh preflight --quick` |
 | `doctor` | Check all required and optional dependencies, directories, and `dialout` group membership for serial port access | — | `mini-bowling.sh doctor` |
@@ -227,13 +236,46 @@ sudo cp mini-bowling.sh /usr/bin/mini-bowling.sh
 | `wifi-status` | Show interface, IP, SSID, signal, and internet reachability | — | `mini-bowling.sh wifi-status` |
 | `vnc-status` | Check VNC server installation, service state, active displays, autostart, and connect address | — | `mini-bowling.sh vnc-status` |
 | `vnc-setup` | Start/stop VNC and enable/disable autostart on boot | `start`, `stop`, `enable-autostart`, `disable-autostart` | `mini-bowling.sh vnc-setup start` |
-| `wait-for-network` | Wait up to N seconds for internet connectivity | `[N]` (default: 30) | `mini-bowling.sh wait-for-network 60` |
+| `restart` | Kill ScoreMore and start it again in one command | — | `mini-bowling.sh restart` |
+| `repair` | Check and fix common broken states — stale PID files, broken symlink, missing dirs, ScoreMore not running | — | `mini-bowling.sh repair` |
+| `ports` | List all serial port devices with USB vendor/product info and status | — | `mini-bowling.sh ports` |
+| `info` | Dense single-screen summary: Arduino, sketch, ScoreMore, last deploy, CPU temp, memory, disk | — | `mini-bowling.sh info` |
+| `status` | Show port, Arduino detection, ScoreMore version + state, watchdog, serial log, schedule, and last deploy result | `--watch [N]` | `mini-bowling.sh status --watch` |
+| `tail-all` | Interleave command log and Arduino serial log with live tail | `[N]` (default: 50) | `mini-bowling.sh tail-all 100` |
+| `test-upload` | Compile sketch without uploading — verify it builds before a real deploy | `[--FolderName]` (default: Everything) | `mini-bowling.sh test-upload --Master_Test` |
+| `scoremore-logs` | Find and view ScoreMore's own application logs | `show` \| `tail` \| `dump` | `mini-bowling.sh scoremore-logs tail` |
 | `create-dir` | Create project, ScoreMore, and log directories if missing | — | `mini-bowling.sh create-dir` |
 | `install-cli` | Install `arduino-cli` to `~/.local/bin` if missing | — | `mini-bowling.sh install-cli` |
 
 ## Usage Examples
 
 ```bash
+# ── Quick admin ───────────────────────────────────────────────────────────────
+
+# ScoreMore frozen? Restart it
+mini-bowling.sh restart
+
+# Full picture at a glance
+mini-bowling.sh info
+
+# Auto-refresh status every 5 seconds
+mini-bowling.sh status --watch
+
+# Fix common broken states automatically
+mini-bowling.sh repair
+
+# List all serial ports with USB details
+mini-bowling.sh ports
+
+# Compile-check Everything before deploying
+mini-bowling.sh test-upload
+
+# Interleave command log and Arduino serial log
+mini-bowling.sh tail-all
+
+# View ScoreMore's own application logs
+mini-bowling.sh scoremore-logs tail
+
 # ── Daily workflow ────────────────────────────────────────────────────────────
 
 # Check everything is ready before deploying
@@ -680,7 +722,7 @@ SD cards on Raspberry Pis can fail without warning — run `backup` before major
 ./mini-bowling-test.sh unit -v
 ```
 
-The unit tests cover: syntax validation, `version` output, unknown command handling, version string parsing, port verification logic, `upload` ScoreMore lifecycle flags (non-`Everything` sketches don't touch ScoreMore), `logs` subcommands, `deploy --dry-run`, serial-log conflict guard, `scoremore-history`, `disk-cleanup`, `wait-for-network`, backup file creation, rollback sketch selection, deploy status file format, watchdog deploy lock, update-script syntax check, backup AppImage flag, logs `--date` flag, deploy notify-send, and more — 113 tests in total.
+The unit tests cover: syntax validation, `version` output, unknown command handling, version string parsing, port verification logic, `upload` ScoreMore lifecycle flags, `logs` subcommands including `--date`, `deploy --dry-run`, serial-log conflict guard, `scoremore-history`, `disk-cleanup`, `wait-for-network` multi-host, backup, rollback sketch selection, deploy status file format, watchdog deploy lock, update-script syntax check, backup AppImage flag, deploy notify-send, `restart`, `repair`, `ports`, `info`, `test-upload`, `scoremore-logs`, `tail-all`, and more — 139 tests in total.
 
 The test script works by sourcing `mini-bowling.sh` with `MINI_BOWLING_SOURCED=1`, which suppresses `main()` execution and allows individual functions to be called and tested in isolation. Hardware-touching functions (`arduino-cli`, `kill_scoremore_gracefully`, etc.) are replaced with lightweight mocks for unit tests.
 
@@ -751,6 +793,139 @@ source ~/.local/share/bash-completion/completions/mini-bowling.sh
 ```
 
 The completion is active immediately after sourcing. It will load automatically in new shells once installed in either location.
+
+## Quick Reference Commands
+
+These are the commands most useful at the bowling alley when something needs fixing fast:
+
+```bash
+mini-bowling.sh restart              # ScoreMore frozen? Kill and relaunch in one command
+mini-bowling.sh status               # What's running right now?
+mini-bowling.sh status --watch       # Auto-refresh status every 5 seconds
+mini-bowling.sh info                 # Full picture: hardware + app + Pi health on one screen
+mini-bowling.sh repair               # Fix common broken states automatically
+mini-bowling.sh ports                # Which serial ports exist and what's on them?
+mini-bowling.sh preflight --quick    # Is everything ready? (skips network checks, fast)
+mini-bowling.sh test-upload          # Does the sketch compile before I deploy?
+mini-bowling.sh tail-all             # What did the script do and what did the Arduino say?
+mini-bowling.sh scoremore-logs tail  # What is ScoreMore itself logging?
+```
+
+## Restart
+
+`mini-bowling.sh restart` kills ScoreMore if it's running and immediately starts it again — the fastest way to recover from a frozen ScoreMore without manually hunting for PIDs:
+
+```bash
+mini-bowling.sh restart
+# Found ScoreMore AppImage (pid 82131) — sending SIGTERM...
+# → stopped gracefully
+# → ScoreMore launched (DISPLAY=:0)
+# ✓ ScoreMore restarted (pid 82456)
+```
+
+## Repair
+
+`mini-bowling.sh repair` checks the most common broken states and fixes them automatically:
+
+- **Stale serial-log PID file** — removed if the process no longer exists (happens after reboot since `/tmp` is wiped)
+- **Stale deploy lock** — removed if the deploy process is gone
+- **Broken ScoreMore symlink** — reported with the fix command
+- **ScoreMore not running** — restarted automatically if autostart is enabled
+- **Missing required directories** — created on the spot
+
+```bash
+mini-bowling.sh repair
+# → Removing stale serial-log PID file (pid 12345 no longer exists)
+# ✓ Deploy lock is clean
+# ✓ ScoreMore symlink OK
+# → ScoreMore not running but autostart is enabled — starting...
+# ✓ ScoreMore started (pid 82456)
+# ✓ All required directories exist
+# ✓ Repaired 2 issue(s) — everything OK
+```
+
+## Ports
+
+`mini-bowling.sh ports` lists every detected serial device with USB info — more useful than `arduino-cli board list` when diagnosing port changes or USB hub issues:
+
+```
+=== Serial Ports ===
+
+  PORT                  STATUS    USB INFO                        NOTES
+  ----                  ------    --------                        -----
+  /dev/ttyACM0          ok        2341:0042 Arduino Mega 2560     configured default
+  /dev/ttyAMA0          ok        —
+```
+
+## Info
+
+`mini-bowling.sh info` combines `status` and `pi-status` into a single dense screen — useful when you need the full picture at a glance without running two commands:
+
+```
+=== mini-bowling info  2026-03-15 09:14:22 ===
+
+Arduino     : detected on /dev/ttyACM0
+Sketch      : Everything  (a1b2c3d)  @ 2026-03-15 02:31:04
+ScoreMore   : running v1.8.0  (pid 82131)
+Last deploy : OK at 2026-03-15 02:31:08 — a1b2c3d: Fix pin debounce timing
+
+Uptime      : up 6 hours, 42 minutes
+CPU Temp    : 48°C
+Memory      : 312MB / 1024MB  (30%)
+Disk        : 4821MB used, 8203MB free  (37%)
+
+Script      : v1.0.0
+```
+
+## Status Watch
+
+`mini-bowling.sh status --watch [N]` refreshes the status display every N seconds (default 5). Useful when deploying or troubleshooting to watch things change in real time:
+
+```bash
+mini-bowling.sh status --watch      # refresh every 5 seconds
+mini-bowling.sh status --watch 10   # refresh every 10 seconds
+```
+
+Press `Ctrl+C` to exit.
+
+## Test Upload
+
+`mini-bowling.sh test-upload [--Sketch]` compiles the sketch without uploading — a safe way to check for compile errors before a real deploy that would kill ScoreMore:
+
+```bash
+mini-bowling.sh test-upload              # compile Everything (default)
+mini-bowling.sh test-upload --Master_Test  # compile a specific sketch
+```
+
+If the compile fails, the error is shown and the command exits non-zero — nothing is killed, nothing is uploaded.
+
+## Tail All
+
+`mini-bowling.sh tail-all [N]` shows the last N lines of both the command log and the Arduino serial log side by side, then follows both live. Tags each line with `[CMD]` or `[ARD]` so you can see what the script did and what the Arduino said at the same time:
+
+```
+=== Interleaved logs (last 50 lines each) ===
+  Command log : ~/Documents/Bowling/logs/mini-bowling-2026-03-15.log
+  Serial log  : ~/Documents/Bowling/logs/arduino-serial-2026-03-15.log
+  [CMD] = command log  [ARD] = Arduino serial
+----------------------------------------
+[CMD] 2026-03-15 02:31:04  deploy  started
+[ARD] pin 3 HIGH
+[CMD] 2026-03-15 02:31:06  Uploading Everything sketch
+[ARD] Reset complete
+```
+
+## ScoreMore Logs
+
+`mini-bowling.sh scoremore-logs` finds ScoreMore's own application log directory (typically `~/.config/ScoreMore/logs/`) and provides quick access to its contents:
+
+```bash
+mini-bowling.sh scoremore-logs          # list available log files
+mini-bowling.sh scoremore-logs tail     # live tail the latest log
+mini-bowling.sh scoremore-logs dump     # full output of the latest log
+```
+
+If the log directory isn't found (ScoreMore hasn't been run yet, or uses a non-standard path), the command reports what it checked and exits cleanly.
 
 ## Script Version
 

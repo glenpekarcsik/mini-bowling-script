@@ -19,7 +19,7 @@ IFS=$'\n\t'
 # ------------------------------------------------
 
 readonly DEFAULT_GIT_BRANCH="main"
-readonly SCRIPT_VERSION="1.0.0"
+readonly SCRIPT_VERSION="2.0.0"
 readonly SCRIPT_REPO="https://github.com/glenpekarcsik/mini-bowling-script.git"
 readonly PROJECT_DIR="${MINI_BOWLING_DIR:-$HOME/Documents/Bowling/Arduino/mini-bowling}"
 readonly DEFAULT_PORT="/dev/ttyACM0"
@@ -1570,7 +1570,7 @@ scoremore_version() {
 
     # Extract version from filename: ScoreMore-1.8.0-arm64.AppImage
     local version
-    version=$(echo "$filename" | sed -n 's/^ScoreMore-\(.*\)-arm64\.AppImage$/\1/p')
+    version=$(echo "$filename" | sed -n "s/^ScoreMore-\\(.*\\)-${ARCH}\\.${EXTENSION}$/\\1/p")
 
     echo "ScoreMore version : ${version:-unknown}"
     echo "AppImage path     : $target"

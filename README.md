@@ -931,13 +931,80 @@ If the log directory isn't found (ScoreMore hasn't been run yet, or uses a non-s
 
 `mini-bowling.sh version` shows version, install path, last-modified date, shell version, and checks GitHub for a newer version — printing a prompt to run `update-script` if one is available. The version number is `SCRIPT_VERSION` at the top of the script — bump it when deploying updates.
 
+## Changelog
+
+### v2.0.0
+Major overhaul from the original v1.0.0 release.
+
+**New commands**
+- `restart` — kill and relaunch ScoreMore in one command
+- `repair` — auto-fix common broken states (stale PID files, broken symlink, missing dirs)
+- `ports` — list serial devices with USB vendor/product info
+- `info` — dense single-screen summary of hardware, app, and Pi health
+- `status --watch [N]` — auto-refresh status every N seconds
+- `tail-all [N]` — interleave command log and Arduino serial log with live tail
+- `test-upload [--Sketch]` — compile-only check without uploading
+- `scoremore-logs [show|tail|dump]` — view ScoreMore's own application logs
+- `vnc-status` / `vnc-setup` — VNC diagnostics and control
+- `preflight --quick` — skip network checks for a fast local-only pre-deploy check
+
+**Status improvements**
+- Git branch, commit, and remote state (ahead/behind) shown in `status`
+- Last deploy now shows git commit hash and subject
+- ScoreMore and autostart merged into one line (like VNC)
+- Deploy schedule renamed to `Deploy sched` with sketch name shown
+
+**Deploy improvements**
+- Deploy lock file prevents watchdog from restarting ScoreMore mid-deploy
+- Desktop notification via `notify-send` on deploy finish (OK or FAILED)
+- Git repo check before deploy — exits cleanly if project dir isn't a git repo
+- Network wait tries multiple hosts (8.8.8.8, 1.1.1.1, 9.9.9.9)
+- Deploy records git commit and subject in status file
+
+**Robustness**
+- `require_git_repo()` guard on all git-dependent commands — clear error before anything destructive runs
+- `start_scoremore` auto-detects active X display — works on VNC sessions and non-`:0` displays
+- `serial-log stop` cleans up stray processes even without a PID file (survives reboot)
+- `rollback` reads last-uploaded sketch from history — no longer hardcoded to `Everything`
+- `rollback-scoremore` gives specific error when only one version is installed
+- `download` verifies AppImage launches before switching symlink
+- `pi-reboot` / `pi-shutdown` check sudo access before countdown
+- `with_git_branch` names the stash and restores branch/stash on interrupt
+- `schedule-deploy` warns if script is not in a cron-accessible PATH location
+- `install` wizard checks URL reachability before attempting git clone
+- `update-script` validates syntax of new script before installing
+
+**Monitoring & logging**
+- `logs tail/dump --date YYYY-MM-DD` — access any day's log, not just today
+- `logs follow` hints about yesterday's log when today's file is empty
+- `logs clean --keep N` — retain the last N days, remove the rest
+- `serial-log` auto-rotates at 10MB to prevent filling the SD card
+- `doctor` checks both dialout group membership and whether current session has it active
+
+**Maintenance**
+- `backup` excludes AppImage by default (re-downloadable) — use `--include-appimage` to include
+- `disk-cleanup` warns that next compile will be slower after cache removal
+- `backup` pruning was already present but now reports count and total kept
+
+**Tab completion**
+- Full bash tab completion for all commands, subcommands, flags, sketch names, ScoreMore versions, git branches, and log dates (`mini-bowling-completion.bash`)
+
+**Testing**
+- 139 unit tests (up from ~20 at v1.0.0)
+- Tests cover all major commands and edge cases — no hardware required for unit tests
+
+**Bug fixes**
+- `scoremore-version` used hardcoded `arm64` instead of `$ARCH` — fixed
+- `BOLD` colour constant was missing — caused crash in `info` and `status --watch`
+- Various commands that needed git would fail mid-execution with cryptic errors if the project directory existed but wasn't a git repo
+
 ## Configuration Reference
 
 All configuration variables are at the top of the script:
 
 | Variable | Default | Description |
 |---|---|---|
-| `SCRIPT_VERSION` | `1.0.0` | Script version — bump when deploying updates |
+| `SCRIPT_VERSION` | `2.0.0` | Script version — bump when deploying updates |
 | `DEFAULT_GIT_BRANCH` | `main` | Branch used by `update` and `deploy` |
 | `PROJECT_DIR` | `~/Documents/Bowling/Arduino/mini-bowling` | Arduino sketch root (override with `$MINI_BOWLING_DIR`) |
 | `DEFAULT_PORT` | `/dev/ttyACM0` | Arduino serial port (override with `$PORT` at runtime) |

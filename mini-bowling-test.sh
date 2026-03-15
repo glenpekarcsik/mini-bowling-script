@@ -290,7 +290,425 @@ run _run_verify "/dev/null"
 assert_exit "existing char device passes verification" 0
 
 # ─────────────────────────────────────────────────────────────────────────────
-suite "upload — sketch/ScoreMore lifecycle flags"
+suite "logs tail/dump --date flag"
+# ─────────────────────────────────────────────────────────────────────────────
+
+_DATED_LOG_DIR="$(tmpdir)"
+_DATED_LOG="$_DATED_LOG_DIR/mini-bowling-2026-01-10.log"
+echo "test log entry for 2026-01-10" > "$_DATED_LOG"
+
+_DATED_PATCHED="$(tmpdir)/mini-bowling-dated.sh"
+sed "s|readonly LOG_DIR=.*|LOG_DIR='$_DATED_LOG_DIR'|" "$SCRIPT" > "$_DATED_PATCHED"
+
+_DATED_TAIL_RUNNER="$(tmpdir)/dated_tail.sh"
+cat > "$_DATED_TAIL_RUNNER" << DTEOF
+#!/usr/bin/env bash
+MINI_BOWLING_SOURCED=1 source "$_DATED_PATCHED"
+show_logs tail 50 --date 2026-01-10
+DTEOF
+
+run bash "$_DATED_TAIL_RUNNER"
+assert_exit "logs tail --date exits 0" 0
+assert_output_contains "logs tail --date shows correct log file" "2026-01-10"
+assert_output_contains "logs tail --date shows log content"      "test log entry"
+
+_DATED_DUMP_RUNNER="$(tmpdir)/dated_dump.sh"
+cat > "$_DATED_DUMP_RUNNER" << DDEOF
+#!/usr/bin/env bash
+MINI_BOWLING_SOURCED=1 source "$_DATED_PATCHED"
+show_logs dump --date 2026-01-10
+DDEOF
+
+run bash "$_DATED_DUMP_RUNNER"
+assert_exit "logs dump --date exits 0" 0
+assert_output_contains "logs dump --date shows correct log file" "2026-01-10"
+assert_output_contains "logs dump --date shows log content"      "test log entry"
+
+# Missing date file should die clearly
+_DATED_MISSING_RUNNER="$(tmpdir)/dated_missing.sh"
+cat > "$_DATED_MISSING_RUNNER" << DMEOF
+#!/usr/bin/env bash
+MINI_BOWLING_SOURCED=1 source "$_DATED_PATCHED"
+show_logs tail --date 1999-01-01
+DMEOF
+
+run bash "$_DATED_MISSING_RUNNER"
+assert_nonzero "logs tail --date missing file exits non-zero"
+assert_output_contains "logs tail --date missing file gives clear error" "No log file"
+
+# Bad date format should die clearly
+_DATED_BAD_RUNNER="$(tmpdir)/dated_bad.sh"
+cat > "$_DATED_BAD_RUNNER" << DBEOF
+#!/usr/bin/env bash
+MINI_BOWLING_SOURCED=1 source "$_DATED_PATCHED"
+show_logs dump --date not-a-date
+DBEOF
+
+run bash "$_DATED_BAD_RUNNER"
+assert_nonzero "logs dump --date bad format exits non-zero"
+assert_output_contains "logs dump --date bad format gives clear error" "YYYY-MM-DD"
+
+# ─────────────────────────────────────────────────────────────────────────────
+suite "deploy — notify-send on finish"
+# ─────────────────────────────────────────────────────────────────────────────
+
+_NOTIFY_RUNNER="$(tmpdir)/notify_test.sh"
+cat > "$_NOTIFY_RUNNER" << NOTEOF
+#!/usr/bin/env bash
+MINI_BOWLING_SOURCED=1 source "$SCRIPT"
+# Override notify-send to capture calls
+notify-send() { echo "NOTIFY: \$*"; }
+command() {
+    if [[ "\$2" == "notify-send" ]]; then return 0; fi
+    builtin command "\$@"
+}
+deploy_commit="abc1234"
+deploy_subject="Test commit"
+_notify_deploy() {
+    local result="\$1"
+    if command -v notify-send >/dev/null 2>&1; then
+        local label="\${deploy_commit}: \${deploy_subject}"
+        if [[ "\$result" == "OK" ]]; then
+            DISPLAY="\${DISPLAY:-:0}" notify-send --icon=emblem-default "mini-bowling: Deploy OK" "\$label" 2>/dev/null || true
+        else
+            DISPLAY="\${DISPLAY:-:0}" notify-send --urgency=critical --icon=dialog-error "mini-bowling: Deploy FAILED" "\$label" 2>/dev/null || true
+        fi
+    fi
+}
+_notify_deploy "OK"
+_notify_deploy "FAILED"
+NOTEOF
+
+run bash "$_NOTIFY_RUNNER"
+assert_exit "notify-send deploy notification exits 0" 0
+assert_output_contains "notify-send called for OK"     "Deploy OK"
+assert_output_contains "notify-send called for FAILED" "Deploy FAILED"
+assert_output_contains "notify-send includes commit"   "abc1234"
+# ─────────────────────────────────────────────────────────────────────────────
+
+_WD_LOCK="/tmp/mini-bowling-deploy.lock"
+echo "$$" > "$_WD_LOCK"   # fake a running deploy using current PID (guaranteed alive)
+
+_WD_RUNNER="$(tmpdir)/watchdog_test.sh"
+cat > "$_WD_RUNNER" << WDEOF
+#!/usr/bin/env bash
+MINI_BOWLING_SOURCED=1 source "$SCRIPT"
+start_scoremore() { echo "SCOREMORE_STARTED"; }
+watchdog
+WDEOF
+
+run bash "$_WD_RUNNER"
+assert_exit "watchdog exits 0 when deploy lock present" 0
+assert_output_contains     "watchdog reports deploy in progress"  "Deploy in progress"
+assert_output_not_contains "watchdog does not restart ScoreMore"  "SCOREMORE_STARTED"
+
+rm -f "$_WD_LOCK"
+
+# ─────────────────────────────────────────────────────────────────────────────
+suite "wait-for-network — tries multiple hosts"
+# ─────────────────────────────────────────────────────────────────────────────
+
+_WFN_MULTI="$(tmpdir)/wfn_multi.sh"
+cat > "$_WFN_MULTI" << WFNEOF
+#!/usr/bin/env bash
+MINI_BOWLING_SOURCED=1 source "$SCRIPT"
+PINGED_HOSTS=()
+ping() {
+    local host="\${@: -1}"
+    PINGED_HOSTS+=("\$host")
+    [[ "\$host" == "1.1.1.1" ]] && return 0 || return 1
+}
+wait_for_network 10
+echo "PINGED:\${PINGED_HOSTS[*]}"
+WFNEOF
+
+run bash "$_WFN_MULTI"
+assert_exit "wait-for-network succeeds when second host responds" 0
+assert_output_contains "wait-for-network tried first host"  "8.8.8.8"
+assert_output_contains "wait-for-network tried second host" "1.1.1.1"
+
+# ─────────────────────────────────────────────────────────────────────────────
+suite "update-script — syntax check before installing"
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Bad script — simulate update_script abort path
+_US_BAD_RUNNER="$(tmpdir)/us_bad.sh"
+_US_BAD_SCRIPT="$(tmpdir)/mini-bowling-bad.sh"
+printf '#!/bin/bash\nSCRIPT_VERSION="9.9.9"\nif [[ broken\n' > "$_US_BAD_SCRIPT"
+
+cat > "$_US_BAD_RUNNER" << USEOF
+#!/usr/bin/env bash
+MINI_BOWLING_SOURCED=1 source "$SCRIPT"
+die() { echo "DIE: \$*"; exit 1; }
+new_script="$_US_BAD_SCRIPT"
+if ! bash -n "\$new_script" 2>/dev/null; then
+    die "New script failed syntax check — aborting update"
+fi
+echo "INSTALLED"
+USEOF
+
+run bash "$_US_BAD_RUNNER"
+assert_nonzero "update-script aborts when new script has syntax error"
+assert_output_contains     "update-script explains syntax failure"      "syntax check"
+assert_output_not_contains "update-script does not install bad script"  "INSTALLED"
+
+# ─────────────────────────────────────────────────────────────────────────────
+suite "backup — AppImage excluded by default, included with flag"
+# ─────────────────────────────────────────────────────────────────────────────
+
+_BK_OUT_DIR="$(tmpdir)"
+_BK_SM_DIR="$(tmpdir)"
+_BK_PROJ="$(tmpdir)"
+_BK_SYMLINK="$_BK_SM_DIR/ScoreMore.AppImage"
+touch "$_BK_SM_DIR/ScoreMore-1.8.0-arm64.AppImage"
+ln -sf "$_BK_SM_DIR/ScoreMore-1.8.0-arm64.AppImage" "$_BK_SYMLINK"
+
+_BK_PATCHED="$(tmpdir)/mini-bowling-bk.sh"
+sed \
+    -e "s|readonly PROJECT_DIR=.*|PROJECT_DIR='$_BK_PROJ'|" \
+    -e "s|readonly SCOREMORE_DIR=.*|SCOREMORE_DIR='$_BK_SM_DIR'|" \
+    -e "s|readonly LOG_DIR=.*|LOG_DIR='$(tmpdir)'|" \
+    -e "s|readonly SYMLINK_PATH=.*|SYMLINK_PATH='$_BK_SYMLINK'|" \
+    "$SCRIPT" > "$_BK_PATCHED"
+
+_BK_RUNNER="$(tmpdir)/bk_default.sh"
+cat > "$_BK_RUNNER" << BKEOF
+#!/usr/bin/env bash
+MINI_BOWLING_SOURCED=1 source "$_BK_PATCHED"
+backup_dir="$_BK_OUT_DIR"
+backup_config
+BKEOF
+
+run bash "$_BK_RUNNER"
+assert_exit "backup exits 0 by default" 0
+assert_output_contains "backup notes AppImage skipped by default" "Skipping ScoreMore AppImage"
+
+_BK_RUNNER2="$(tmpdir)/bk_appimage.sh"
+cat > "$_BK_RUNNER2" << BKEOF
+#!/usr/bin/env bash
+MINI_BOWLING_SOURCED=1 source "$_BK_PATCHED"
+backup_dir="$_BK_OUT_DIR"
+backup_config --include-appimage
+BKEOF
+
+run bash "$_BK_RUNNER2"
+assert_exit "backup --include-appimage exits 0" 0
+assert_output_not_contains "backup --include-appimage does not print skip message" "Skipping ScoreMore AppImage"
+
+# ─────────────────────────────────────────────────────────────────────────────
+suite "doctor — dialout added but session predates it"
+# ─────────────────────────────────────────────────────────────────────────────
+
+_DOC_RUNNER="$(tmpdir)/doctor_dialout.sh"
+cat > "$_DOC_RUNNER" << DOCEOF
+#!/usr/bin/env bash
+MINI_BOWLING_SOURCED=1 source "$SCRIPT"
+# Simulate: dialout in /etc/group (-nG) but not in active session (-Gn)
+id() {
+    case "\$*" in
+        *-nG*) echo "pi dialout" ;;
+        *-Gn)  echo "pi sudo"    ;;
+        *-un)  echo "pi"         ;;
+        *)     command id "\$@"  ;;
+    esac
+}
+doctor 2>/dev/null | grep -A2 "dialout\|Serial"
+DOCEOF
+
+run bash "$_DOC_RUNNER"
+assert_output_contains "doctor detects dialout needs re-login" "log out"
+
+# ─────────────────────────────────────────────────────────────────────────────
+suite "start_scoremore — display detection"
+# ─────────────────────────────────────────────────────────────────────────────
+
+_DISPLAY_RUNNER="$(tmpdir)/display_test.sh"
+cat > "$_DISPLAY_RUNNER" << DISPEOF
+#!/usr/bin/env bash
+MINI_BOWLING_SOURCED=1 source "$SCRIPT"
+# Override nohup/disown to avoid actually launching anything
+nohup() { echo "LAUNCHED DISPLAY=\$DISPLAY"; }
+disown() { true; }
+# Test 1: DISPLAY already set in environment
+DISPLAY=":1" start_scoremore
+DISPEOF
+
+run bash "$_DISPLAY_RUNNER"
+assert_exit   "start_scoremore exits 0 with DISPLAY set" 0
+assert_output_contains "start_scoremore uses existing DISPLAY" "DISPLAY=:1"
+
+_DISPLAY_RUNNER2="$(tmpdir)/display_test2.sh"
+cat > "$_DISPLAY_RUNNER2" << DISPEOF
+#!/usr/bin/env bash
+MINI_BOWLING_SOURCED=1 source "$SCRIPT"
+nohup() { echo "LAUNCHED DISPLAY=\$DISPLAY"; }
+disown() { true; }
+# Test 2: no DISPLAY set — should default to :0 with a warning
+unset DISPLAY
+who() { echo ""; }   # no logged-in users to scan
+start_scoremore
+DISPEOF
+
+run bash "$_DISPLAY_RUNNER2"
+assert_exit   "start_scoremore exits 0 without DISPLAY" 0
+assert_output_contains "start_scoremore defaults to :0 when DISPLAY unset" "DISPLAY=:0"
+assert_output_contains "start_scoremore warns when defaulting to :0"        "Warning"
+
+# ─────────────────────────────────────────────────────────────────────────────
+suite "serial-log stop — cleans up even without PID file"
+# ─────────────────────────────────────────────────────────────────────────────
+
+_SL_STOP_PATCHED="$(tmpdir)/mini-bowling-slstop.sh"
+sed "s|readonly LOG_DIR=.*|LOG_DIR='$(tmpdir)'|" "$SCRIPT" > "$_SL_STOP_PATCHED"
+
+_SL_STOP_RUNNER="$(tmpdir)/slstop_test.sh"
+cat > "$_SL_STOP_RUNNER" << SLEOF
+#!/usr/bin/env bash
+MINI_BOWLING_SOURCED=1 source "$_SL_STOP_PATCHED"
+# No PID file exists — stop should still report gracefully (not error)
+rm -f /tmp/mini-bowling-serial.pid
+serial_log stop
+SLEOF
+
+run bash "$_SL_STOP_RUNNER"
+assert_exit "serial-log stop with no PID file exits 0" 0
+assert_output_contains "serial-log stop reports not running when no PID" "not running"
+
+# ─────────────────────────────────────────────────────────────────────────────
+suite "rollback-scoremore — clear error when only one version"
+# ─────────────────────────────────────────────────────────────────────────────
+
+_RBS_DIR="$(tmpdir)"
+_RBS_SYMLINK="$_RBS_DIR/ScoreMore.AppImage"
+touch "$_RBS_DIR/ScoreMore-1.8.0-arm64.AppImage"
+ln -sf "$_RBS_DIR/ScoreMore-1.8.0-arm64.AppImage" "$_RBS_SYMLINK"
+
+_RBS_PATCHED="$(tmpdir)/mini-bowling-rbs.sh"
+sed \
+    -e "s|readonly SCOREMORE_DIR=.*|SCOREMORE_DIR='$_RBS_DIR'|" \
+    -e "s|readonly SYMLINK_PATH=.*|SYMLINK_PATH='$_RBS_SYMLINK'|" \
+    "$SCRIPT" > "$_RBS_PATCHED"
+
+_RBS_RUNNER="$(tmpdir)/rbs_test.sh"
+cat > "$_RBS_RUNNER" << RBSEOF
+#!/usr/bin/env bash
+MINI_BOWLING_SOURCED=1 source "$_RBS_PATCHED"
+rollback_scoremore
+RBSEOF
+
+run bash "$_RBS_RUNNER"
+assert_nonzero "rollback-scoremore fails when only one version installed"
+assert_output_contains "rollback-scoremore explains only one version" "one"
+
+# ─────────────────────────────────────────────────────────────────────────────
+suite "schedule-deploy — warns when script not in system PATH"
+# ─────────────────────────────────────────────────────────────────────────────
+
+_SCHED_RUNNER="$(tmpdir)/sched_test.sh"
+cat > "$_SCHED_RUNNER" << SCHEDEOF
+#!/usr/bin/env bash
+MINI_BOWLING_SOURCED=1 source "$SCRIPT"
+# Override crontab to avoid modifying real crontab
+crontab() {
+    if [[ "\$1" == "-l" ]]; then echo ""; else cat > /dev/null; fi
+}
+realpath() { echo "/home/user/mini-bowling.sh"; }   # non-system path
+schedule_deploy 02:30
+SCHEDEOF
+
+run bash "$_SCHED_RUNNER"
+assert_exit "schedule-deploy exits 0 even with non-system path" 0
+assert_output_contains "schedule-deploy warns about non-system path" "Warning"
+assert_output_contains "schedule-deploy suggests cp to /usr/bin"    "/usr/bin"
+
+# ─────────────────────────────────────────────────────────────────────────────
+suite "disk-cleanup — warns about build cache slowdown"
+# ─────────────────────────────────────────────────────────────────────────────
+
+_DC_DIR="$(tmpdir)"
+_DC_CACHE="$_DC_DIR/build"
+mkdir -p "$_DC_CACHE"
+touch "$_DC_CACHE/dummy.o"
+
+_DC_PATCHED="$(tmpdir)/mini-bowling-dc.sh"
+sed \
+    -e "s|readonly SCOREMORE_DIR=.*|SCOREMORE_DIR='$(tmpdir)'|" \
+    -e "s|readonly LOG_DIR=.*|LOG_DIR='$(tmpdir)'|" \
+    -e "s|readonly PROJECT_DIR=.*|PROJECT_DIR='$_DC_DIR'|" \
+    -e "s|readonly SYMLINK_PATH=.*|SYMLINK_PATH='/tmp/nonexistent_xyzzy'|" \
+    "$SCRIPT" > "$_DC_PATCHED"
+
+_DC_RUNNER="$(tmpdir)/dc_test.sh"
+cat > "$_DC_RUNNER" << DCEOF
+#!/usr/bin/env bash
+MINI_BOWLING_SOURCED=1 source "$_DC_PATCHED"
+disk_cleanup
+DCEOF
+
+run bash "$_DC_RUNNER"
+assert_exit "disk-cleanup exits 0" 0
+assert_output_contains "disk-cleanup warns about slower next compile" "slower"
+# ─────────────────────────────────────────────────────────────────────────────
+
+_GIT_NOTREPO="$(tmpdir)/not-a-repo"
+_GIT_ISREPO="$(tmpdir)/is-a-repo"
+mkdir -p "$_GIT_NOTREPO" "$_GIT_ISREPO"
+cd "$_GIT_ISREPO" && git init -q && git config user.email "t@t" \
+    && git config user.name "T" \
+    && git commit -q --allow-empty -m "init" && cd - >/dev/null
+
+_NOTREPO_PATCHED="$(tmpdir)/mini-bowling-notrepo.sh"
+sed "s|readonly PROJECT_DIR=.*|PROJECT_DIR='$_GIT_NOTREPO'|" \
+    "$SCRIPT" > "$_NOTREPO_PATCHED"
+
+_ISREPO_PATCHED="$(tmpdir)/mini-bowling-isrepo.sh"
+sed "s|readonly PROJECT_DIR=.*|PROJECT_DIR='$_GIT_ISREPO'|" \
+    "$SCRIPT" > "$_ISREPO_PATCHED"
+
+_NOTREPO_RUNNER="$(tmpdir)/notrepo_test.sh"
+cat > "$_NOTREPO_RUNNER" << NREOF
+#!/usr/bin/env bash
+MINI_BOWLING_SOURCED=1 source "$_NOTREPO_PATCHED"
+require_git_repo
+NREOF
+
+_ISREPO_RUNNER="$(tmpdir)/isrepo_test.sh"
+cat > "$_ISREPO_RUNNER" << IREOF
+#!/usr/bin/env bash
+MINI_BOWLING_SOURCED=1 source "$_ISREPO_PATCHED"
+require_git_repo
+IREOF
+
+run bash "$_NOTREPO_RUNNER"
+assert_nonzero "require_git_repo fails on non-git directory"
+assert_output_contains "require_git_repo error mentions git repository" "git repository"
+
+run bash "$_ISREPO_RUNNER"
+assert_exit "require_git_repo passes on valid git repo" 0
+
+# ─────────────────────────────────────────────────────────────────────────────
+suite "deploy/update/rollback — blocked on non-git directory"
+# ─────────────────────────────────────────────────────────────────────────────
+
+_BLOCKED_RUNNER="$(tmpdir)/blocked_test.sh"
+cat > "$_BLOCKED_RUNNER" << BLKEOF
+#!/usr/bin/env bash
+MINI_BOWLING_SOURCED=1 source "$_NOTREPO_PATCHED"
+cmd_update
+BLKEOF
+
+run bash "$_BLOCKED_RUNNER"
+assert_nonzero "cmd_update blocked when not a git repo"
+assert_output_contains "cmd_update error is clear" "git repository"
+
+cat > "$_BLOCKED_RUNNER" << BLKEOF
+#!/usr/bin/env bash
+MINI_BOWLING_SOURCED=1 source "$_NOTREPO_PATCHED"
+check_update
+BLKEOF
+
+run bash "$_BLOCKED_RUNNER"
+assert_nonzero "check_update blocked when not a git repo"
 # ─────────────────────────────────────────────────────────────────────────────
 
 _MOCK_WRAPPER="$(tmpdir)/mock_upload_test.sh"

@@ -21,16 +21,17 @@ deploy [--flags]               Pull → upload Everything → restart ScoreMore
 deploy schedule HH:MM          Schedule daily deploy
 deploy unschedule              Remove scheduled deploy
 
-sketch upload [--Name]         Compile + upload sketch
-sketch list                    List available sketches
+code sketch upload [--Name]    Compile + upload sketch
+code sketch list               List available sketches
 code sketch test [--Name]      Compile-only check (no upload)
-sketch rollback [N]            Roll back N commits and re-upload
+code sketch rollback [N]       Roll back N commits and re-upload
+code console                   Open Arduino serial console (interactive)
 
-branch list                    List local + remote branches with commit info
-branch checkout <n>            Temporarily checkout, compile, return to original
-branch switch <n>              Permanently switch to branch (fetches + pulls)
-branch update                  Pull latest for current branch
-branch check                   Check if remote has new commits
+code branch list               List local + remote branches with commit info
+code branch checkout <n>       Temporarily checkout, compile, return to original
+code branch switch <n>         Permanently switch to branch (fetches + pulls)
+code branch update             Pull latest for current branch
+code branch check              Check if remote has new commits
 
 scoremore start|stop|restart   Manage ScoreMore process
 scoremore download <ver>       Download version (or 'latest')
@@ -71,14 +72,14 @@ script version|update
 - Port and sketch existence verified before killing ScoreMore — nothing goes down for a typo
 - Deploy lock file prevents watchdog from restarting ScoreMore mid-deploy
 - Dry-run mode — preview what a deploy would do without making any changes (`deploy --dry-run`)
-- Roll back to a previous git commit and re-upload the last-used sketch (`sketch rollback`)
+- Roll back to a previous git commit and re-upload the last-used sketch (`code sketch rollback`)
 - Network wait tries multiple DNS hosts (8.8.8.8, 1.1.1.1, 9.9.9.9)
 
 **Branch Management**
-- List all local and remote branches with latest commit info (`branch list`)
-- Upload from any branch temporarily — fetches + pulls latest, returns to original after (`sketch upload --branch`)
-- Permanently switch the repo to a branch with fetch + pull (`branch switch`)
-- Check for remote commits without pulling (`branch check`)
+- List all local and remote branches with latest commit info (`code branch list`)
+- Upload from any branch temporarily — fetches + pulls latest, returns to original after (`code sketch upload --branch`)
+- Permanently switch the repo to a branch with fetch + pull (`code branch switch`)
+- Check for remote commits without pulling (`code branch check`)
 
 **ScoreMore**
 - Download any version with disk space guard and integrity check (`scoremore download`)
@@ -110,7 +111,7 @@ script version|update
 
 ## Requirements
 
-- `arduino-cli` installed and configured — install via `mini-bowling.sh system install cli`
+- `arduino-cli` installed and configured — install via `mini-bowling.sh install cli`
 - `git` in the project directory
 - `curl`, `realpath`, `pgrep`, `pkill`, `nohup`
 - Write access to `~/Desktop` (for the ScoreMore symlink)
@@ -207,6 +208,7 @@ Done.
 | `code branch switch` | Permanently switch to branch (fetch + pull) | `<branch>` | `mini-bowling.sh code branch switch feature/new-sensor` |
 | `code branch update` | Pull latest for current branch | — | `mini-bowling.sh code branch update` |
 | `code branch check` | Check remote for new commits | — | `mini-bowling.sh code branch check` |
+| `code console` | Open Arduino serial console (interactive) | — | `mini-bowling.sh code console` |
 | `scoremore start` | Launch ScoreMore | — | `mini-bowling.sh scoremore start` |
 | `scoremore stop` | Kill ScoreMore | — | `mini-bowling.sh scoremore stop` |
 | `scoremore restart` | Kill and relaunch ScoreMore | — | `mini-bowling.sh scoremore restart` |
@@ -313,7 +315,7 @@ mini-bowling.sh system serial stop
 mini-bowling.sh system serial status
 mini-bowling.sh system serial tail
 mini-bowling.sh system serial console
-mini-bowling.sh logs follow
+mini-bowling.sh code console
 mini-bowling.sh logs tail 100 --date 2026-03-15
 mini-bowling.sh logs clean --keep 7
 mini-bowling.sh system tail-all
@@ -517,9 +519,10 @@ mini-bowling.sh system serial status   # check if running
 mini-bowling.sh system serial tail     # live follow (Ctrl+C to exit)
 mini-bowling.sh system serial stop     # stop
 mini-bowling.sh system serial console  # interactive serial monitor
+mini-bowling.sh code console           # shortcut for system serial console
 ```
 
-Serial logs auto-rotate at 10MB. The console is blocked if serial logging is active — both use the same port. After every `sketch upload` or `deploy`, serial logging stops before upload and restarts after.
+Serial logs auto-rotate at 10MB. The console is blocked if serial logging is active — both use the same port. After every `code sketch upload` or `deploy`, serial logging stops before upload and restarts after.
 
 ## Raspberry Pi Management
 
@@ -578,7 +581,10 @@ The last 10 backups are kept automatically.
 
 ```bash
 mini-bowling.sh <TAB>
-→  status  info  version  deploy  sketch  branch  scoremore  pi  logs  system
+→  status  info  version  deploy  code  scoremore  pi  logs  system  install  script
+
+mini-bowling.sh code <TAB>
+→  sketch  branch  console
 
 mini-bowling.sh code sketch <TAB>
 →  upload  list  test  rollback
@@ -644,11 +650,28 @@ mini-bowling.sh scoremore logs tail      # ScoreMore application logs
 
 ## Changelog
 
+### v3.0.0
+
+**Command structure**
+- `sketch` and `branch` command groups merged under `code` — e.g. `code sketch upload`, `code branch switch`
+- `code console` shortcut added — alias for `system serial console`
+
+**Bug fixes**
+- Literal `\n` in `serial)` dispatch line broke `system serial` entirely — fixed
+- 15 stale command references in usage strings updated throughout (old hyphenated and un-prefixed forms)
+- UTF-8 box-drawing characters in comment headers replaced with ASCII in both script and completion file
+
+**Tab completion**
+- Completion file updated to match `code sketch/branch/console` command tree
+- Stale top-level `sketch` and `branch` entries removed
+- Fourth and fifth level completions fixed for `code sketch upload` flags and `code branch checkout` sketch names
+- `install` and `script` second-level completions added
+
 ### v2.0.0
 Major overhaul from the original v1.0.0 release.
 
 **Command structure**
-- Commands grouped into `deploy`, `sketch`, `branch`, `scoremore`, `pi`, `logs`, `system`
+- Commands grouped into `deploy`, `code` (sketch + branch), `scoremore`, `pi`, `logs`, `system`
 - `status`, `info`, `version` remain at top level for quick access
 - `install` group (top-level): `setup`, `create-dir`, `cli`, `preflight`
 - `script` group (top-level): `version`, `update` (renamed from `update-script`)
@@ -663,9 +686,9 @@ Major overhaul from the original v1.0.0 release.
 - `info` — dense single-screen summary
 - `status --watch [N]` — auto-refresh
 - `system tail-all [N]` — interleave command + Arduino logs
-- `sketch test [--Sketch]` — compile-only check
+- `code sketch test [--Sketch]` — compile-only check
 - `scoremore logs` — view ScoreMore application logs
-- `branch list`, `branch checkout`, `branch switch`, `branch update`, `branch check`
+- `code branch list`, `code branch checkout`, `code branch switch`, `code branch update`, `code branch check`
 
 **Deploy improvements**
 - Deploy lock file prevents watchdog from restarting ScoreMore mid-deploy
@@ -673,17 +696,17 @@ Major overhaul from the original v1.0.0 release.
 - Git repo check before deploy
 - Network wait tries multiple hosts
 - Deploy records git commit and subject in status file
-- `sketch upload --branch` / `deploy --branch` now correctly fetches + pulls latest remote commits before compiling
+- `code sketch upload --branch` / `deploy --branch` now correctly fetches + pulls latest remote commits before compiling
 
 **Robustness**
 - `require_git_repo()` guard on all git-dependent commands
 - `start_scoremore` auto-detects active X display
 - `system serial stop` cleans up stray processes without PID file
-- `sketch rollback` reads last-uploaded sketch from history
+- `code sketch rollback` reads last-uploaded sketch from history
 - `scoremore rollback` gives specific error when only one version installed
 - `scoremore download` verifies AppImage launches before switching symlink
 - `pi reboot`/`pi shutdown` check sudo upfront
-- `branch checkout` / `branch switch` names stash and restores on interrupt
+- `code branch checkout` / `code branch switch` names stash and restores on interrupt
 - `deploy schedule` warns if script not in cron-accessible PATH
 - `system install setup` checks URL reachability before git clone
 - `system script update` validates syntax before installing, resets clone before pull
@@ -691,7 +714,7 @@ Major overhaul from the original v1.0.0 release.
 **Bug fixes**
 - `scoremore version` used hardcoded `arm64` instead of `$ARCH`
 - `BOLD` colour constant was missing — caused crash in `info` and `status --watch`
-- `upload --branch` never pulled latest remote commits
+- `code sketch upload --branch` never pulled latest remote commits
 
 **Testing**
 - 136 unit tests covering all major commands and edge cases
@@ -700,8 +723,8 @@ Major overhaul from the original v1.0.0 release.
 
 | Variable | Default | Description |
 |---|---|---|
-| `SCRIPT_VERSION` | `2.0.0` | Script version — bump when deploying updates |
-| `DEFAULT_GIT_BRANCH` | `main` | Branch used by `branch update` and `deploy` |
+| `SCRIPT_VERSION` | `3.0.0` | Script version — bump when deploying updates |
+| `DEFAULT_GIT_BRANCH` | `main` | Branch used by `code branch update` and `deploy` |
 | `PROJECT_DIR` | `~/Documents/Bowling/Arduino/mini-bowling` | Arduino sketch root (override with `$MINI_BOWLING_DIR`) |
 | `DEFAULT_PORT` | `/dev/ttyACM0` | Arduino serial port (override with `$PORT` at runtime) |
 | `BOARD` | `arduino:avr:mega` | arduino-cli FQBN |

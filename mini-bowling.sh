@@ -3339,6 +3339,7 @@ Usage: mini-bowling.sh <command> [subcommand] [options]
     code branch switch <n>         Permanently switch to branch (fetches + pulls)
     code branch update             Pull latest commits for current branch
     code branch check              Check if remote has new commits without pulling
+    code console                   Open Arduino serial console (interactive)
 
   scoremore             ScoreMore application management
     scoremore start                Launch ScoreMore
@@ -3442,6 +3443,7 @@ Examples:
   mini-bowling.sh system serial stop
   mini-bowling.sh system serial tail
   mini-bowling.sh system serial console
+  mini-bowling.sh code console
   mini-bowling.sh logs follow
   mini-bowling.sh logs tail 100 --date 2026-03-15
   mini-bowling.sh system tail-all
@@ -3697,6 +3699,11 @@ _dispatch() {
                     esac
                     ;;
 
+                # code console -----------------------------------------------
+                console)
+                    show_console
+                    ;;
+
                 *)
                     echo "code subcommands:"
                     echo "  code sketch upload [--Name] [--branch <n>] [--no-kill]"
@@ -3708,6 +3715,7 @@ _dispatch() {
                     echo "  code branch switch <n>"
                     echo "  code branch update"
                     echo "  code branch check"
+                    echo "  code console                   Open Arduino serial console"
                     ;;
             esac
             ;;

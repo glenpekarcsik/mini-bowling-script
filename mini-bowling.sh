@@ -625,6 +625,103 @@ download_scoremore_version() {
     start_scoremore
 }
 
+list_branches() {
+    require_git_repo
+
+    echo "Fetching branch list from remote..."
+    git fetch --quiet origin 2>/dev/null || echo -e "${YELLOW}Warning: fetch failed — showing local branches only${NC}"
+
+    local current
+    current=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "unknown")
+
+    echo
+    echo "Branches in $PROJECT_DIR:"
+    echo "----------------------------------------------"
+
+    # Collect all local and remote branches, deduplicated
+    local branches
+    branches=$(git branch -a 2>/dev/null | \
+        sed 's|^\*\? *||;s|remotes/origin/||' | \
+        grep -v '^HEAD' | sort -u)
+
+    while IFS= read -r b; do
+        local marker="  "
+        [[ "$b" == "$current" ]] && marker="${GREEN}→ ${NC}"
+        local commit subject
+        commit=$(git log -1 --format='%h' "origin/$b" 2>/dev/null || \
+                 git log -1 --format='%h' "$b" 2>/dev/null || echo "?")
+        subject=$(git log -1 --format='%s' "origin/$b" 2>/dev/null || \
+                  git log -1 --format='%s' "$b" 2>/dev/null || echo "")
+        printf "${marker}  %-30s  [%s] %s\n" "$b" "$commit" "$subject"
+    done <<< "$branches"
+
+    echo
+    echo "Usage:"
+    echo "  mini-bowling.sh upload --Master_Test --branch feature/new-sensor"
+    echo "  mini-bowling.sh switch-branch feature/new-sensor"
+}
+
+switch_branch() {
+    local branch="${1:?Missing branch name — usage: mini-bowling.sh switch-branch <branch>}"
+
+    require_git_repo
+
+    local current
+    current=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "unknown")
+
+    if [[ "$current" == "$branch" ]]; then
+        echo "Already on branch: $branch"
+        echo "→ Pulling latest..."
+        git pull --quiet origin "$branch" 2>/dev/null || \
+            echo -e "${YELLOW}Warning: git pull failed${NC}"
+        local commit subject
+        commit=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
+        subject=$(git log -1 --format='%s' 2>/dev/null || echo "")
+        echo -e "${GREEN}✓ $branch is up to date:${NC} [$commit] $subject"
+        return 0
+    fi
+
+    # Stash if dirty
+    local was_dirty=false
+    if ! git diff --quiet || ! git diff --cached --quiet; then
+        was_dirty=true
+        local stash_name="mini-bowling-$(date '+%Y%m%d-%H%M%S')"
+        echo -e "${YELLOW}Stashing local changes as:${NC} $stash_name"
+        git stash push -m "$stash_name" || die "Stash failed"
+        echo -e "  (restore with: git stash pop)"
+    fi
+
+    echo "→ Fetching latest from remote..."
+    git fetch --quiet origin 2>/dev/null || echo -e "${YELLOW}Warning: fetch failed${NC}"
+
+    echo -e "${YELLOW}Switching to branch:${NC} $branch"
+    if git checkout --quiet "$branch" 2>/dev/null; then
+        : # local branch
+    elif git checkout --quiet -b "$branch" --track "origin/$branch" 2>/dev/null; then
+        echo "  (created local tracking branch from origin/$branch)"
+    else
+        $was_dirty && git stash pop --quiet 2>/dev/null || true
+        die "Cannot checkout '$branch' — run: mini-bowling.sh upload --list-branches"
+    fi
+
+    echo "→ Pulling latest commits for $branch..."
+    git pull --quiet origin "$branch" 2>/dev/null || \
+        echo -e "${YELLOW}Warning: git pull failed — on local state of $branch${NC}"
+
+    local commit subject
+    commit=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
+    subject=$(git log -1 --format='%s' 2>/dev/null || echo "")
+    echo -e "${GREEN}✓ Switched to $branch:${NC} [$commit] $subject"
+    echo
+    echo -e "${YELLOW}Note:${NC} you are now permanently on branch '$branch'."
+    echo "  To switch back: mini-bowling.sh switch-branch $DEFAULT_GIT_BRANCH"
+
+    if $was_dirty; then
+        echo
+        echo -e "${YELLOW}Stashed changes were left behind — restore with: git stash pop${NC}"
+    fi
+}
+
 list_available_sketches() {
     require_project_dir
 
@@ -3147,16 +3244,32 @@ with_git_branch() {
     }
     trap '_with_git_branch_restore' INT TERM EXIT
 
-    # Fetch latest to make sure remote branches are up-to-date
-    git fetch --quiet || echo -e "${YELLOW}Warning: git fetch failed${NC}"
+    # Fetch latest from remote so we have up-to-date refs for all branches
+    echo "→ Fetching latest from remote..."
+    git fetch --quiet origin 2>/dev/null || echo -e "${YELLOW}Warning: git fetch failed — using local refs${NC}"
 
-    # Checkout the requested branch / ref
-    echo -e "${YELLOW}Temporarily checking out:${NC} $branch"
-    git checkout --quiet "$branch" || {
+    # Checkout the requested branch, tracking remote if it's a remote-only branch
+    echo -e "${YELLOW}Checking out branch:${NC} $branch"
+    if git checkout --quiet "$branch" 2>/dev/null; then
+        : # local branch exists, checked out
+    elif git checkout --quiet -b "$branch" --track "origin/$branch" 2>/dev/null; then
+        echo "  (created local tracking branch from origin/$branch)"
+    else
         trap - INT TERM EXIT
         _with_git_branch_restore
-        die "Cannot checkout '$branch' (does it exist? Try 'origin/$branch' or a tag/commit)"
-    }
+        die "Cannot checkout '$branch' — does it exist on remote? Run: mini-bowling.sh upload --list-branches"
+    fi
+
+    # Pull latest commits for this branch from remote
+    echo "→ Pulling latest commits for $branch..."
+    if git pull --quiet origin "$branch" 2>/dev/null; then
+        local current_commit current_subject
+        current_commit=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
+        current_subject=$(git log -1 --format='%s' 2>/dev/null || echo "")
+        echo -e "${GREEN}→ Now at:${NC} [$current_commit] $current_subject"
+    else
+        echo -e "${YELLOW}Warning: git pull failed — proceeding with local state of $branch${NC}"
+    fi
 
     # Run the requested command with remaining args
     local exit_code=0
@@ -3190,8 +3303,9 @@ Usage: mini-bowling.sh <command> [options]
 Available commands:
   status                Show project / port / app status
   update                git pull latest main branch
-  upload [--FolderName | --list-sketches] [--branch <n>] [--no-kill]
+  upload [--FolderName | --list-sketches | --list-branches] [--branch <n>] [--no-kill]
                         Compile + upload sketch → restart ScoreMore (default: Everything)
+  switch-branch <name>  Switch the project repo to a branch permanently (fetches + pulls latest)
   deploy [--no-kill] [--branch <n>] [--dry-run]
                         Pull → upload Everything → restart ScoreMore (default branch: main)
   download <version>    Download + restart ScoreMore (e.g. 1.8.0 or 'latest')
@@ -3321,7 +3435,8 @@ EOF
        && "$cmd" != "serial-log" && "$cmd" != "setup-watchdog" \
        && "$cmd" != "watchdog" && "$cmd" != "version" \
        && "$cmd" != "ports" && "$cmd" != "info" \
-       && "$cmd" != "tail-all" && "$cmd" != "scoremore-logs" ]]; then
+       && "$cmd" != "tail-all" && "$cmd" != "scoremore-logs" \
+       && "$cmd" != "list-branches" ]]; then
         setup_logging "$cmd" "$@"
         prune_logs
     fi
@@ -3395,6 +3510,10 @@ _dispatch() {
                 case "$1" in
                     --list-sketches)
                         list_available_sketches
+                        exit 0
+                        ;;
+                    --list-branches)
+                        list_branches
                         exit 0
                         ;;
                     --no-kill|-k)
@@ -3559,6 +3678,9 @@ _dispatch() {
             ;;
         scoremore-logs)
             scoremore_logs "${1:-show}"
+            ;;
+        switch-branch)
+            switch_branch "${1:-}"
             ;;
         *)
             echo "Unknown command: $cmd" >&2

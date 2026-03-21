@@ -38,7 +38,7 @@ _mini_bowling_complete() {
         wait-for-network create-dir install-cli
         pi-status pi-update pi-reboot pi-shutdown
         wifi-status vnc-status vnc-setup
-        restart repair ports info tail-all test-upload scoremore-logs
+        restart repair ports info tail-all test-upload scoremore-logs switch-branch
     "
 
     # ── Completion for second word (subcommands / flags) ──────────────────────
@@ -110,7 +110,7 @@ _mini_bowling_complete() {
             ;;
 
         upload)
-            # Offer --list-sketches, --no-kill, --branch, plus any sketch folders
+            # Offer --list-sketches, --list-branches, --no-kill, --branch, plus any sketch folders
             local sketches=""
             local script_path
             script_path=$(command -v mini-bowling.sh 2>/dev/null)
@@ -126,7 +126,26 @@ _mini_bowling_complete() {
                         -printf '--%f\n' 2>/dev/null | sort)
                 fi
             fi
-            COMPREPLY=( $(compgen -W "--list-sketches --no-kill --branch $sketches" -- "$cur") )
+            COMPREPLY=( $(compgen -W "--list-sketches --list-branches --no-kill --branch $sketches" -- "$cur") )
+            return 0
+            ;;
+
+        switch-branch)
+            # Suggest available git branches
+            local script_path project_dir=""
+            script_path=$(command -v mini-bowling.sh 2>/dev/null)
+            if [[ -n "$script_path" ]]; then
+                project_dir=$(grep -m1 'PROJECT_DIR=' "$script_path" 2>/dev/null | \
+                    sed 's/.*PROJECT_DIR="\(.*\)"/\1/' | \
+                    sed "s|\$HOME|$HOME|g" | sed "s|~|$HOME|g" || true)
+            fi
+            if [[ -n "$project_dir" && -d "$project_dir/.git" ]]; then
+                local branches
+                branches=$(git -C "$project_dir" branch -a 2>/dev/null | \
+                    sed 's|^\*\? *||;s|remotes/origin/||' | \
+                    grep -v HEAD | sort -u)
+                COMPREPLY=( $(compgen -W "$branches" -- "$cur") )
+            fi
             return 0
             ;;
 

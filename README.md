@@ -21,6 +21,9 @@ This script simplifies common tasks when developing and deploying code for a min
 - Dry-run mode — preview what a deploy would do without making any changes (`deploy --dry-run`)
 - Roll back to a previous git commit and re-upload the last-used sketch (`rollback`)
 - Git operations with dirty-repo warning (`update`)
+- List all local and remote branches with latest commit (`upload --list-branches`)
+- Upload from any branch temporarily — fetches + pulls latest, returns to original branch after (`upload --branch`)
+- Permanently switch the repo to a branch with fetch + pull (`switch-branch`)
 - Check for remote git commits without pulling (`check-update`)
 - Upload timeout — fails cleanly if arduino-cli hangs rather than blocking forever
 - Keep the script itself up to date from GitHub — syntax-validated before installing (`update-script`)
@@ -201,8 +204,10 @@ sudo cp mini-bowling.sh /usr/bin/mini-bowling.sh
 | `preflight` | Run 9 pre-deploy checks — Arduino, network, disk, CPU temp, git state, symlink, remote updates, ScoreMore version. Use `--quick` to skip the 3 network-dependent checks (3, 8, 9) for a fast local-only check | `--quick` \| `-q` | `mini-bowling.sh preflight --quick` |
 | `doctor` | Check all required and optional dependencies, directories, and `dialout` group membership for serial port access | — | `mini-bowling.sh doctor` |
 | `deploy` | Wait for network → pull latest → kill ScoreMore → upload `Everything` → restart ScoreMore | `--no-kill` \| `-k` \| `--branch <n>` \| `--dry-run` | `mini-bowling.sh deploy` |
-| `upload` | Compile + upload sketch → restart ScoreMore (default: `Everything`) | `--FolderName` \| `--list-sketches` \| `--branch <n>` \| `--no-kill` | `mini-bowling.sh upload --Master_Test` |
+| `upload` | Compile + upload sketch → restart ScoreMore (default: `Everything`) | `--FolderName` \| `--list-sketches` \| `--list-branches` \| `--branch <n>` \| `--no-kill` | `mini-bowling.sh upload --Master_Test` |
 | `upload --list-sketches` | List all subfolders containing at least one `*.ino` file | — | `mini-bowling.sh upload --list-sketches` |
+| `upload --list-branches` | List all local and remote branches with latest commit and subject | — | `mini-bowling.sh upload --list-branches` |
+| `switch-branch` | Permanently switch the repo to a branch — fetches and pulls latest, creates local tracking branch if needed | `<branch>` | `mini-bowling.sh switch-branch feature/new-sensor` |
 | `update` | `git pull` latest changes (warns if repo is dirty) | — | `mini-bowling.sh update` |
 | `check-update` | Fetch remote and show new commits without pulling | — | `mini-bowling.sh check-update` |
 | `rollback` | Reset N git commits and re-upload the last-used sketch (reads from upload history, falls back to `Everything`) | `[N]` (default: 1) | `mini-bowling.sh rollback` |
@@ -317,6 +322,18 @@ mini-bowling.sh scoremore-history
 
 # Check for new commits without pulling
 mini-bowling.sh check-update
+
+# List all available branches with latest commit
+mini-bowling.sh upload --list-branches
+
+# Upload Master_Test from the feature/new-sensor branch (fetches + pulls latest)
+mini-bowling.sh upload --Master_Test --branch feature/new-sensor
+
+# Permanently switch the repo to a branch (stays there until you switch back)
+mini-bowling.sh switch-branch feature/new-sensor
+
+# Switch back to main
+mini-bowling.sh switch-branch main
 
 # Roll back one commit and re-upload if a deploy caused problems
 mini-bowling.sh rollback
@@ -480,6 +497,53 @@ mini-bowling.sh update-script
 This clones the script repo to `~/.local/share/mini-bowling-script` on first run, then `git pull`s on subsequent runs. Before installing, the downloaded script is validated with `bash -n` — if it fails the syntax check, the update is aborted and the currently installed version is left untouched. If the installed script is in `/usr/bin` or `/usr/local/bin`, `sudo cp` is used automatically. After updating, run `mini-bowling.sh version` to confirm the new version is installed.
 
 If the script is already up to date it reports so without making any changes.
+
+## Branch Management
+
+**List all branches:**
+```bash
+mini-bowling.sh upload --list-branches
+# Fetching branch list from remote...
+#
+# Branches in ~/Documents/Bowling/Arduino/mini-bowling:
+# ----------------------------------------------
+# → main                           [a1b2c3d] Fix pin debounce timing
+#   feature/new-sensor             [e4f5g6h] Add proximity sensor support
+#   feature/score-display          [i7j8k9l] Update LED matrix driver
+#
+# Usage:
+#   mini-bowling.sh upload --Master_Test --branch feature/new-sensor
+#   mini-bowling.sh switch-branch feature/new-sensor
+```
+
+**Upload from a specific branch** (temporary — returns to original branch after):
+```bash
+mini-bowling.sh upload --Everything --branch feature/new-sensor
+# → Fetching latest from remote...
+# Checking out branch: feature/new-sensor
+#   (created local tracking branch from origin/feature/new-sensor)
+# → Pulling latest commits for feature/new-sensor...
+# → Now at: [e4f5g6h] Add proximity sensor support
+# → Compiling + uploading: Everything
+# ...
+# Returning to original branch: main
+```
+
+The `--branch` flag is **temporary** — it fetches and pulls the latest for that branch, compiles and uploads, then switches back to your original branch automatically. This is the right choice for testing a branch without leaving the repo on it.
+
+**Permanently switch to a branch:**
+```bash
+mini-bowling.sh switch-branch feature/new-sensor
+# → Fetching latest from remote...
+# Switching to branch: feature/new-sensor
+# → Pulling latest commits for feature/new-sensor...
+# ✓ Switched to feature/new-sensor: [e4f5g6h] Add proximity sensor support
+#
+# Note: you are now permanently on branch 'feature/new-sensor'.
+#   To switch back: mini-bowling.sh switch-branch main
+```
+
+`switch-branch` is **permanent** — the repo stays on that branch until you switch back. The scheduled daily deploy will then deploy from that branch. Use this when you want to run a branch for an extended period (e.g. testing a new sensor before merging).
 
 ## Rollback
 
@@ -996,6 +1060,7 @@ Major overhaul from the original v1.0.0 release.
 **Bug fixes**
 - `scoremore-version` used hardcoded `arm64` instead of `$ARCH` — fixed
 - `BOLD` colour constant was missing — caused crash in `info` and `status --watch`
+- `upload --branch` / `deploy --branch` never pulled the latest remote commits — only checked out the local state of the branch. Now does `git fetch` + `git checkout` (creating a local tracking branch if needed) + `git pull` in sequence, and shows the commit it's building from
 - Various commands that needed git would fail mid-execution with cryptic errors if the project directory existed but wasn't a git repo
 
 ## Configuration Reference

@@ -3375,52 +3375,96 @@ Available commands:
                         Find and view ScoreMore's own application logs
 
 Examples:
+
+  ── Status & info ──────────────────────────────────────────────────
   mini-bowling.sh status
-  mini-bowling.sh create-dir
-  mini-bowling.sh install-cli
-  mini-bowling.sh update
-  mini-bowling.sh upload --list-sketches
-  mini-bowling.sh upload --Everything
-  mini-bowling.sh upload --Master_Test --branch feature/new-sensor
-  mini-bowling.sh deploy --dry-run
+  mini-bowling.sh status --watch
+  mini-bowling.sh status --watch 10
+  mini-bowling.sh info
+  mini-bowling.sh version
+  mini-bowling.sh doctor
+  mini-bowling.sh preflight
+  mini-bowling.sh preflight --quick
+  mini-bowling.sh ports
+
+  ── Deploy ─────────────────────────────────────────────────────────
   mini-bowling.sh deploy
+  mini-bowling.sh deploy --dry-run
   mini-bowling.sh deploy --no-kill
   mini-bowling.sh deploy --branch testing
-  mini-bowling.sh update-script
-  mini-bowling.sh logs clean
-  mini-bowling.sh download 1.8.0
-  mini-bowling.sh download latest
-  mini-bowling.sh setup-autostart
-  mini-bowling.sh remove-autostart
-  mini-bowling.sh schedule-deploy 02:30
-  mini-bowling.sh unschedule-deploy
-  mini-bowling.sh logs
-  mini-bowling.sh logs follow
-  mini-bowling.sh logs dump
-  mini-bowling.sh logs tail
-  mini-bowling.sh logs tail 100
-  mini-bowling.sh install
-  mini-bowling.sh preflight
-  mini-bowling.sh doctor
-  mini-bowling.sh version
-  mini-bowling.sh scoremore-version
-  mini-bowling.sh check-scoremore-update
-  mini-bowling.sh backup
-  mini-bowling.sh wait-for-network
+
+  ── Upload (compile + upload without full deploy cycle) ────────────
+  mini-bowling.sh upload --Everything
+  mini-bowling.sh upload --Master_Test
+  mini-bowling.sh upload --Master_Test --branch feature/new-sensor
+  mini-bowling.sh upload --Master_Test --no-kill
+  mini-bowling.sh upload --list-sketches
+  mini-bowling.sh upload --list-branches
+  mini-bowling.sh test-upload
+  mini-bowling.sh test-upload --Master_Test
+
+  ── Branch management ──────────────────────────────────────────────
+  mini-bowling.sh switch-branch feature/new-sensor
+  mini-bowling.sh switch-branch main
+  mini-bowling.sh update
+  mini-bowling.sh check-update
   mini-bowling.sh rollback
   mini-bowling.sh rollback 2
-  mini-bowling.sh check-update
+
+  ── ScoreMore ──────────────────────────────────────────────────────
+  mini-bowling.sh restart
+  mini-bowling.sh start-scoremore
+  mini-bowling.sh download latest
+  mini-bowling.sh download 1.8.0
+  mini-bowling.sh check-scoremore-update
+  mini-bowling.sh scoremore-version
   mini-bowling.sh scoremore-history
   mini-bowling.sh scoremore-history use 1.7.0
   mini-bowling.sh scoremore-history clean
   mini-bowling.sh rollback-scoremore
+  mini-bowling.sh scoremore-logs
+  mini-bowling.sh scoremore-logs tail
+  mini-bowling.sh scoremore-logs dump
+  mini-bowling.sh setup-autostart
+  mini-bowling.sh remove-autostart
+
+  ── Serial & console ───────────────────────────────────────────────
+  mini-bowling.sh console
   mini-bowling.sh serial-log start
   mini-bowling.sh serial-log stop
+  mini-bowling.sh serial-log status
   mini-bowling.sh serial-log tail
+
+  ── Logs ───────────────────────────────────────────────────────────
+  mini-bowling.sh logs
+  mini-bowling.sh logs follow
+  mini-bowling.sh logs dump
+  mini-bowling.sh logs dump --date 2026-03-15
+  mini-bowling.sh logs tail
+  mini-bowling.sh logs tail 100
+  mini-bowling.sh logs tail 100 --date 2026-03-15
+  mini-bowling.sh logs clean
+  mini-bowling.sh logs clean --keep 7
+  mini-bowling.sh tail-all
+  mini-bowling.sh tail-all 100
+
+  ── Watchdog & scheduling ──────────────────────────────────────────
   mini-bowling.sh watchdog
   mini-bowling.sh setup-watchdog enable
   mini-bowling.sh setup-watchdog disable
+  mini-bowling.sh setup-watchdog status
+  mini-bowling.sh schedule-deploy 02:30
+  mini-bowling.sh unschedule-deploy
+
+  ── Maintenance ────────────────────────────────────────────────────
+  mini-bowling.sh repair
+  mini-bowling.sh backup
+  mini-bowling.sh backup --include-appimage
   mini-bowling.sh disk-cleanup
+  mini-bowling.sh update-script
+  mini-bowling.sh list
+
+  ── Raspberry Pi ───────────────────────────────────────────────────
   mini-bowling.sh pi-status
   mini-bowling.sh pi-update
   mini-bowling.sh pi-reboot
@@ -3428,7 +3472,16 @@ Examples:
   mini-bowling.sh wifi-status
   mini-bowling.sh vnc-status
   mini-bowling.sh vnc-setup start
+  mini-bowling.sh vnc-setup stop
   mini-bowling.sh vnc-setup enable-autostart
+  mini-bowling.sh vnc-setup disable-autostart
+
+  ── Setup ──────────────────────────────────────────────────────────
+  mini-bowling.sh install
+  mini-bowling.sh create-dir
+  mini-bowling.sh install-cli
+  mini-bowling.sh wait-for-network
+  mini-bowling.sh wait-for-network 60
 
 EOF
         exit 0
@@ -3571,7 +3624,9 @@ _dispatch() {
             if [[ "$sketch" == "Everything" ]]; then
                 start_scoremore
             else
-                echo "ScoreMore left as-is (sketch is '$sketch', not 'Everything')"
+                local current_branch
+                current_branch=$(git -C "$PROJECT_DIR" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "unknown")
+                echo "ScoreMore left as-is (sketch is '$sketch' from branch '$current_branch', not 'Everything')"
             fi
             ;;
         deploy)

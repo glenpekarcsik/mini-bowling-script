@@ -1586,7 +1586,22 @@ update_script() {
             return 0
         fi
         echo "→ $behind new commit(s) available — pulling..."
-        git -C "$script_repo_dir" pull --quiet origin main || die "git pull failed"
+
+        # Reset any local modifications in the clone — this is a pure mirror,
+        # not a working copy, so local edits should never be preserved
+        if ! git -C "$script_repo_dir" diff --quiet 2>/dev/null || \
+           ! git -C "$script_repo_dir" diff --cached --quiet 2>/dev/null; then
+            echo -e "  ${YELLOW}Local modifications found in clone — resetting to remote${NC}"
+            git -C "$script_repo_dir" reset --hard origin/main --quiet 2>/dev/null || true
+        fi
+
+        git -C "$script_repo_dir" pull --quiet origin main || {
+            # Pull still failed — nuclear option: delete and re-clone
+            echo -e "  ${YELLOW}Pull failed — re-cloning from scratch...${NC}"
+            rm -rf "$script_repo_dir"
+            mkdir -p "$(dirname "$script_repo_dir")"
+            git clone --quiet "$SCRIPT_REPO" "$script_repo_dir" || die "git clone failed"
+        }
     else
         echo "→ Cloning script repo..."
         mkdir -p "$(dirname "$script_repo_dir")"

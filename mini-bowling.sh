@@ -3855,7 +3855,7 @@ _dispatch() {
                     echo "  watchdog run|enable|disable|status"
                     echo ""
                     echo "See also: install setup|create-dir|cli|preflight"
-                    echo "         script version|update"
+                    echo "         script version|update|update-completion"
                     ;;
             esac
             ;;

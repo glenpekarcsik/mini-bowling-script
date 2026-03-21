@@ -85,7 +85,7 @@ _mini_bowling_complete() {
             logs)      COMPREPLY=( $(compgen -W "list follow dump tail clean" -- "$cur") ) ;;
             system)    COMPREPLY=( $(compgen -W "doctor preflight backup repair cleanup ports tail-all wait-for-network serial watchdog" -- "$cur") ) ;;
             install)   COMPREPLY=( $(compgen -W "setup create-dir cli preflight" -- "$cur") ) ;;
-            script)    COMPREPLY=( $(compgen -W "version update" -- "$cur") ) ;;
+            script)    COMPREPLY=( $(compgen -W "version update update-completion" -- "$cur") ) ;;
         esac
         return 0
     fi

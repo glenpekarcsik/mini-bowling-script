@@ -1636,6 +1636,66 @@ update_script() {
     echo "  Run 'mini-bowling.sh version' to confirm."
 }
 
+update_completion() {
+    local completion_dest="/etc/bash_completion.d/mini-bowling.sh"
+    local script_repo_dir="$HOME/.local/share/mini-bowling-script"
+
+    echo "Completion file : $completion_dest"
+    echo
+
+    # Ensure we have a current clone of the repo (reuse update_script's clone)
+    if [[ -d "$script_repo_dir/.git" ]]; then
+        echo "→ Fetching latest from $SCRIPT_REPO..."
+        git -C "$script_repo_dir" fetch --quiet origin main || \
+            die "git fetch failed — is the network available?"
+
+        local behind
+        behind=$(git -C "$script_repo_dir" rev-list HEAD..origin/main --count 2>/dev/null || echo 0)
+
+        if [[ "$behind" -gt 0 ]]; then
+            echo "→ $behind new commit(s) available — pulling..."
+            if ! git -C "$script_repo_dir" diff --quiet 2>/dev/null || \
+               ! git -C "$script_repo_dir" diff --cached --quiet 2>/dev/null; then
+                echo -e "  ${YELLOW}Local modifications found in clone — resetting to remote${NC}"
+                git -C "$script_repo_dir" reset --hard origin/main --quiet 2>/dev/null || true
+            fi
+            git -C "$script_repo_dir" pull --quiet origin main || {
+                echo -e "  ${YELLOW}Pull failed — re-cloning from scratch...${NC}"
+                rm -rf "$script_repo_dir"
+                mkdir -p "$(dirname "$script_repo_dir")"
+                git clone --quiet "$SCRIPT_REPO" "$script_repo_dir" || die "git clone failed"
+            }
+        else
+            echo -e "  ${GREEN}✓ Repo already up to date${NC}"
+        fi
+    else
+        echo "→ Cloning script repo..."
+        mkdir -p "$(dirname "$script_repo_dir")"
+        git clone --quiet "$SCRIPT_REPO" "$script_repo_dir" || die "git clone failed"
+    fi
+
+    local new_completion="$script_repo_dir/mini-bowling-completion.bash"
+    [[ -f "$new_completion" ]] || die "mini-bowling-completion.bash not found in repo at $new_completion"
+
+    # Validate syntax before installing
+    echo "→ Validating syntax of new completion file..."
+    if ! bash -n "$new_completion" 2>/dev/null; then
+        die "New completion file failed syntax check — aborting.
+  The downloaded file is at: $new_completion
+  Run 'bash -n $new_completion' to see the errors."
+    fi
+    echo -e "  ${GREEN}✓ Syntax OK${NC}"
+
+    echo "→ Installing to $completion_dest..."
+    sudo cp "$new_completion" "$completion_dest" || \
+        die "sudo cp failed — do you have sudo access?"
+
+    echo -e "${GREEN}✓ Completion file updated${NC}"
+    echo
+    echo "Reload it in your current shell with:"
+    echo "  source $completion_dest"
+}
+
 script_version() {
     local script_path
     script_path=$(command -v mini-bowling.sh 2>/dev/null) || script_path=$(realpath "$0")
@@ -3389,6 +3449,7 @@ Usage: mini-bowling.sh <command> [subcommand] [options]
   script                Script management
     script version                 Show version and check GitHub for updates
     script update                  Update script from GitHub (syntax-checked)
+    script update-completion       Update tab completion file from GitHub
 
   system                System administration
     system doctor                  Check dependencies, directories, dialout group
@@ -3469,6 +3530,7 @@ Examples:
   mini-bowling.sh install cli
   mini-bowling.sh script version
   mini-bowling.sh script update
+  mini-bowling.sh script update-completion
   mini-bowling.sh pi status
   mini-bowling.sh pi update
   mini-bowling.sh pi reboot
@@ -3847,10 +3909,11 @@ _dispatch() {
         script)
             local scrcmd="${1:-version}"; shift 2>/dev/null || true
             case "$scrcmd" in
-                version) script_version ;;
-                update)  update_script ;;
+                version)            script_version ;;
+                update)             update_script ;;
+                update-completion)  update_completion ;;
                 *)
-                    die "Unknown script subcommand: '$scrcmd' — use: version, update"
+                    die "Unknown script subcommand: '$scrcmd' — use: version, update, update-completion"
                     ;;
             esac
             ;;

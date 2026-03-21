@@ -4,11 +4,11 @@
 # https://github.com/glenpekarcsik/mini-bowling-script
 #
 # Usage examples:
-#   mini-bowling.sh update
-#   mini-bowling.sh upload --Master_Test
-#   mini-bowling.sh upload --list-sketches
+#   mini-bowling.sh deploy
+#   mini-bowling.sh code sketch upload --Master_Test
+#   mini-bowling.sh code sketch list
 #   mini-bowling.sh deploy --no-kill
-#   mini-bowling.sh download latest
+#   mini-bowling.sh scoremore download latest
 #
 
 set -euo pipefail
@@ -269,7 +269,7 @@ require_project_dir() {
 require_git_repo() {
     require_project_dir
     [[ -d "$PROJECT_DIR/.git" ]] || die "Project directory is not a git repository: $PROJECT_DIR
-  If you haven't cloned the repo yet, run: mini-bowling.sh install
+  If you haven't cloned the repo yet, run: mini-bowling.sh install setup
   Or clone manually: git clone <repo-url> \"$PROJECT_DIR\""
 }
 
@@ -657,8 +657,8 @@ list_branches() {
 
     echo
     echo "Usage:"
-    echo "  mini-bowling.sh sketch upload --Master_Test --branch feature/new-sensor"
-    echo "  mini-bowling.sh branch switch feature/new-sensor"
+    echo "  mini-bowling.sh code sketch upload --Master_Test --branch feature/new-sensor"
+    echo "  mini-bowling.sh code branch switch feature/new-sensor"
 }
 
 switch_branch() {
@@ -701,7 +701,7 @@ switch_branch() {
         echo "  (created local tracking branch from origin/$branch)"
     else
         $was_dirty && git stash pop --quiet 2>/dev/null || true
-        die "Cannot checkout '$branch' — run: mini-bowling.sh branch list"
+        die "Cannot checkout '$branch' — run: mini-bowling.sh code branch list"
     fi
 
     echo "→ Pulling latest commits for $branch..."
@@ -714,7 +714,7 @@ switch_branch() {
     echo -e "${GREEN}✓ Switched to $branch:${NC} [$commit] $subject"
     echo
     echo -e "${YELLOW}Note:${NC} you are now permanently on branch '$branch'."
-    echo "  To switch back: mini-bowling.sh branch switch $DEFAULT_GIT_BRANCH"
+    echo "  To switch back: mini-bowling.sh code branch switch $DEFAULT_GIT_BRANCH"
 
     if $was_dirty; then
         echo
@@ -820,7 +820,7 @@ cmd_compile_and_upload() {
 
     if [[ ! -d "$sketch_path" ]]; then
         echo -e "${YELLOW}Folder not found:${NC} $sketch_dir"
-        echo "Run:   mini-bowling.sh sketch list"
+        echo "Run:   mini-bowling.sh code sketch list"
         die "Sketch folder missing: $sketch_dir"
     fi
 
@@ -1421,7 +1421,7 @@ cmd_test_upload() {
     local sketch_path="${PROJECT_DIR}/${sketch_dir}"
     if [[ ! -d "$sketch_path" ]]; then
         echo -e "${YELLOW}Folder not found:${NC} $sketch_dir"
-        echo "Run:   mini-bowling.sh sketch list"
+        echo "Run:   mini-bowling.sh code sketch list"
         die "Sketch folder missing: $sketch_dir"
     fi
 
@@ -1789,7 +1789,7 @@ doctor() {
         if [[ -d "$dir" ]]; then
             printf "  ${GREEN}✓${NC}  %s\n" "$dir"
         else
-            printf "  ${YELLOW}-${NC}  %s  (not created yet — run: mini-bowling.sh system install create-dir)\n" "$dir"
+            printf "  ${YELLOW}-${NC}  %s  (not created yet — run: mini-bowling.sh install create-dir)\n" "$dir"
         fi
     done
 
@@ -1985,7 +1985,7 @@ install_setup() {
         echo "  Project directory already exists: $PROJECT_DIR"
         echo "  Running git pull to get latest code..."
         git -C "$PROJECT_DIR" pull origin "$DEFAULT_GIT_BRANCH" || \
-            echo -e "  ${YELLOW}Warning: git pull failed — check network and try 'mini-bowling.sh update' later${NC}"
+            echo -e "  ${YELLOW}Warning: git pull failed — check network and try 'mini-bowling.sh deploy' later${NC}"
     elif [[ -d "$PROJECT_DIR" ]]; then
         echo -e "  ${YELLOW}Directory exists but is not a git repo: $PROJECT_DIR${NC}"
         echo "  Skipped — if this is intentional, ignore this warning."
@@ -3039,7 +3039,7 @@ vnc_setup() {
     # Unknown subcommand check (before VNC detection so error is always shown)
     case "$subcmd" in
         start|stop|enable-autostart|disable-autostart) ;;
-        *) die "Unknown vnc-setup subcommand: '$subcmd' — use start, stop, enable-autostart, or disable-autostart" ;;
+        *) die "Unknown pi vnc subcommand: '$subcmd' — use start, stop, enable-autostart, or disable-autostart" ;;
     esac
 
     # -- Detect installed VNC flavor -------------------------------------------
@@ -3153,7 +3153,7 @@ vnc_setup() {
                 else
                     die "No systemd VNC service found and raspi-config not available.
 Try installing RealVNC: sudo apt-get install realvnc-vnc-server
-Then re-run: mini-bowling.sh vnc-setup enable-autostart"
+Then re-run: mini-bowling.sh pi vnc enable"
                 fi
             fi
             ;;
@@ -3272,7 +3272,7 @@ with_git_branch() {
     else
         trap - INT TERM EXIT
         _with_git_branch_restore
-        die "Cannot checkout '$branch' — does it exist on remote? Run: mini-bowling.sh branch list"
+        die "Cannot checkout '$branch' — does it exist on remote? Run: mini-bowling.sh code branch list"
     fi
 
     # Pull latest commits for this branch from remote
@@ -3749,7 +3749,8 @@ _dispatch() {
                 ports)            show_ports ;;
                 tail-all)         tail_all "$@" ;;
                 wait-for-network) wait_for_network "${1:-30}" ;;
-                serial)\n                    local sercmd="${1:-status}"; shift 2>/dev/null || true
+                serial)
+                    local sercmd="${1:-status}"; shift 2>/dev/null || true
                     case "$sercmd" in
                         start|stop|status|tail) serial_log "$sercmd" "$@" ;;
                         console)                show_console ;;

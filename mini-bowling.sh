@@ -662,7 +662,7 @@ list_branches() {
 }
 
 switch_branch() {
-    local branch="${1:?Missing branch name — usage: mini-bowling.sh switch-branch <branch>}"
+    local branch="${1:?Missing branch name — usage: mini-bowling.sh code branch switch <branch>}"
 
     require_git_repo
 
@@ -782,9 +782,9 @@ list_available_sketches() {
     echo "Found $count sketch folder(s)."
     echo
     echo "Usage:"
-    echo "  mini-bowling.sh sketch upload --Everything"
-    echo "  mini-bowling.sh upload --Master_Test"
-    echo "  mini-bowling.sh upload --YourFolderName"
+    echo "  mini-bowling.sh code sketch upload --Everything"
+    echo "  mini-bowling.sh code sketch upload --Master_Test"
+    echo "  mini-bowling.sh code sketch upload --YourFolderName"
 }
 
 cmd_update() {
@@ -1506,8 +1506,8 @@ scoremore_logs() {
                 printf "  %-50s  %s\n" "$(basename "$f")" "$(du -h "$f" | cut -f1)"
             done
             echo
-            echo "Run: mini-bowling.sh scoremore-logs tail    (live tail latest log)"
-            echo "Run: mini-bowling.sh scoremore-logs dump    (full output of latest)"
+            echo "Run: mini-bowling.sh scoremore logs tail    (live tail latest log)"
+            echo "Run: mini-bowling.sh scoremore logs dump    (full output of latest)"
             ;;
         tail)
             local latest
@@ -2078,10 +2078,10 @@ install_setup() {
     echo -e "${GREEN}✓ Setup complete.${NC}"
     echo
     echo "Next steps:"
-    echo "  1. Connect the Arduino and run:  mini-bowling.sh list"
+    echo "  1. Connect the Arduino and run:  mini-bowling.sh code sketch list"
     echo "  2. Update DEFAULT_PORT and BOARD in the script if needed"
     echo "  3. Re-copy the script:           sudo cp mini-bowling.sh /usr/bin/mini-bowling.sh"
-    echo "  4. Run a pre-flight check:       mini-bowling.sh preflight"
+    echo "  4. Run a pre-flight check:       mini-bowling.sh system preflight"
     echo "  5. Run your first deploy:        mini-bowling.sh deploy"
 }
 
@@ -2381,7 +2381,7 @@ scoremore_history() {
             ;;
 
         use)
-            local ver="${1?Missing version — e.g. mini-bowling.sh scoremore-history use 1.8.0}"
+            local ver="${1?Missing version — e.g. mini-bowling.sh scoremore history use 1.8.0}"
             local filename="${APP_NAME}-${ver}-${ARCH}.${EXTENSION}"
             local target="$SCOREMORE_DIR/$filename"
 
@@ -2743,7 +2743,7 @@ disk_cleanup() {
         backup_count=$(find "$backup_dir" -maxdepth 1 -name "mini-bowling-backup-*.tar.gz" 2>/dev/null | wc -l)
         backup_size_kb=$(du -sk "$backup_dir" 2>/dev/null | cut -f1)
         echo "  Backups: $backup_count file(s), $(( backup_size_kb / 1024 ))MB total"
-        echo "  (run 'mini-bowling.sh backup' to apply the 10-backup retention limit)"
+        echo "  (run 'mini-bowling.sh system backup' to apply the 10-backup retention limit)"
     fi
 
     echo
@@ -2810,19 +2810,19 @@ pi_update() {
 
     if [[ -f /var/run/reboot-required ]]; then
         echo -e "${YELLOW}→ A reboot is required to apply updates.${NC}"
-        echo "  Run: mini-bowling.sh pi-reboot"
+        echo "  Run: mini-bowling.sh pi reboot"
     fi
 }
 
 pi_reboot() {
-    sudo -n true 2>/dev/null || sudo true || die "sudo access required for reboot — run: sudo mini-bowling.sh pi-reboot"
+    sudo -n true 2>/dev/null || sudo true || die "sudo access required for reboot — run: sudo mini-bowling.sh pi reboot"
     echo -e "${YELLOW}Rebooting Raspberry Pi in 5 seconds... (Ctrl+C to cancel)${NC}"
     sleep 5
     sudo reboot
 }
 
 pi_shutdown() {
-    sudo -n true 2>/dev/null || sudo true || die "sudo access required for shutdown — run: sudo mini-bowling.sh pi-shutdown"
+    sudo -n true 2>/dev/null || sudo true || die "sudo access required for shutdown — run: sudo mini-bowling.sh pi shutdown"
     echo -e "${YELLOW}Shutting down Raspberry Pi in 5 seconds... (Ctrl+C to cancel)${NC}"
     sleep 5
     sudo shutdown -h now

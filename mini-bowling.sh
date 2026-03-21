@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# mini-bowling — Helper script for Arduino + ScoreMore development workflow
+# mini-bowling - Helper script for Arduino + ScoreMore development workflow
 # https://github.com/glenpekarcsik/mini-bowling-script
 #
 # Usage examples:
@@ -65,7 +65,7 @@ setup_logging() {
         echo "----------------------------------------"
     } >> "$log_file"
 
-    # Store log path for use by log_cmd wrapper — avoid exec redirects
+    # Store log path for use by log_cmd wrapper - avoid exec redirects
     # which are unreliable with some shells/Pi configurations
     export MINI_BOWLING_LOG="$log_file"
 }
@@ -132,7 +132,7 @@ show_logs() {
 
         follow)
             [[ -f "$today_log" ]] || die "No log file for today: $today_log"
-            # Warn if today's log is empty — likely just past midnight
+            # Warn if today's log is empty - likely just past midnight
             if [[ ! -s "$today_log" ]]; then
                 local yesterday_log
                 yesterday_log="$LOG_DIR/mini-bowling-$(date -d 'yesterday' '+%Y-%m-%d' 2>/dev/null || \
@@ -295,7 +295,7 @@ find_arduino_port() {
         fi
     done
 
-    # Return empty and non-zero — callers using $() must check the result
+    # Return empty and non-zero - callers using $() must check the result
     return 1
 }
 
@@ -303,12 +303,12 @@ find_arduino_port() {
 verify_arduino_port() {
     local port="$1"
 
-    # Guard against empty port — means find_arduino_port failed inside $()
+    # Guard against empty port - means find_arduino_port failed inside $()
     [[ -z "$port" ]] && die "No Arduino serial port found — is the Arduino connected?"
 
     echo "→ Verifying Arduino on $port..."
 
-    # Check the port device actually exists — that's all we need to proceed.
+    # Check the port device actually exists - that's all we need to proceed.
     # arduino-cli board list often fails to identify the board type even when
     # the port is perfectly usable (e.g. unrecognised VID/PID, missing index).
     if [[ ! -c "$port" ]]; then
@@ -319,7 +319,7 @@ verify_arduino_port() {
 }
 
 kill_scoremore_gracefully() {
-    # Target the AppImage launcher by full path — killing the parent brings down
+    # Target the AppImage launcher by full path - killing the parent brings down
     # the entire Electron process tree that spawns under /tmp/.mount_ScoreM*/
     local pid
     pid=$(pgrep -f "ScoreMore.AppImage" 2>/dev/null | head -1) || true
@@ -351,9 +351,9 @@ kill_scoremore_gracefully() {
     fi
 }
 
-# Pure launcher — callers are responsible for killing ScoreMore first if needed
+# Pure launcher - callers are responsible for killing ScoreMore first if needed
 start_scoremore() {
-    # Detect the active X display — prefer DISPLAY from environment, fall back to
+    # Detect the active X display - prefer DISPLAY from environment, fall back to
     # scanning for a logged-in user's session, then default to :0
     local display="${DISPLAY:-}"
     if [[ -z "$display" ]]; then
@@ -466,7 +466,7 @@ print_status() {
         echo "Serial log  : not running"
     fi
 
-    # VNC status — single line summary
+    # VNC status - single line summary
     local vnc_line="not installed"
     if command -v vncserver >/dev/null 2>&1 || command -v x11vnc >/dev/null 2>&1; then
         local vnc_svc_running=false
@@ -810,7 +810,7 @@ cmd_compile_and_upload() {
     require_project_dir
     require_arduino_cli
 
-    # Verify port and board BEFORE killing ScoreMore — no point killing the app
+    # Verify port and board BEFORE killing ScoreMore - no point killing the app
     # if the Arduino isn't reachable
     local port
     port=$(find_arduino_port) || true
@@ -828,7 +828,7 @@ cmd_compile_and_upload() {
         echo -e "${YELLOW}Warning:${NC} No .ino file found in $sketch_dir — upload may fail"
     fi
 
-    # Item 2: note whether serial logging was active before upload — the upload
+    # Item 2: note whether serial logging was active before upload - the upload
     # disconnects the serial port, which kills the background monitor
     local pid_file="/tmp/mini-bowling-serial.pid"
     local serial_was_running=false
@@ -1058,7 +1058,7 @@ board_list() {
     arduino-cli board list
 }
 
-# ── restart ───────────────────────────────────────────────────────────────────
+# -- restart -------------------------------------------------------------------
 # Kill ScoreMore and start it again in one command
 restart_scoremore() {
     local sm_pid
@@ -1080,7 +1080,7 @@ restart_scoremore() {
     fi
 }
 
-# ── status --watch ────────────────────────────────────────────────────────────
+# -- status --watch ------------------------------------------------------------
 # Continuously refresh status display
 watch_status() {
     local interval="${1:-5}"
@@ -1095,7 +1095,7 @@ watch_status() {
     done
 }
 
-# ── repair ────────────────────────────────────────────────────────────────────
+# -- repair --------------------------------------------------------------------
 # Check and fix common broken states automatically
 repair() {
     echo "=== Repair ==="
@@ -1194,7 +1194,7 @@ repair() {
     fi
 }
 
-# ── ports ─────────────────────────────────────────────────────────────────────
+# -- ports ---------------------------------------------------------------------
 # List all serial devices with more detail than arduino-cli board list
 show_ports() {
     echo "=== Serial Ports ==="
@@ -1274,7 +1274,7 @@ show_ports() {
     fi
 }
 
-# ── info ──────────────────────────────────────────────────────────────────────
+# -- info ----------------------------------------------------------------------
 # Dense single-screen summary combining status + pi-status
 show_info() {
     local ts
@@ -1282,7 +1282,7 @@ show_info() {
     echo -e "${BOLD}=== mini-bowling info  $ts ===${NC}"
     echo
 
-    # ── Hardware ──────────────────────────────────────────────────────────────
+    # -- Hardware --------------------------------------------------------------
     local port
     port=$(find_arduino_port 2>/dev/null || echo "not found")
     [[ -c "$port" ]] && \
@@ -1300,7 +1300,7 @@ show_info() {
         echo "Sketch      : unknown"
     fi
 
-    # ── ScoreMore ─────────────────────────────────────────────────────────────
+    # -- ScoreMore -------------------------------------------------------------
     local sm_pid
     sm_pid=$(pgrep -f "ScoreMore.AppImage" 2>/dev/null | head -1 || true)
     local sm_ver=""
@@ -1314,7 +1314,7 @@ show_info() {
         echo -e "ScoreMore   : ${RED}not running${NC}"
     fi
 
-    # ── Last deploy ───────────────────────────────────────────────────────────
+    # -- Last deploy -----------------------------------------------------------
     if [[ -f "$DEPLOY_STATUS_FILE" ]]; then
         local dep_finished dep_result dep_commit dep_subject
         dep_finished=$(sed -n '2p' "$DEPLOY_STATUS_FILE")
@@ -1330,7 +1330,7 @@ show_info() {
         echo "Last deploy : no record"
     fi
 
-    # ── Pi health ─────────────────────────────────────────────────────────────
+    # -- Pi health -------------------------------------------------------------
     echo
     echo "Uptime      : $(uptime -p 2>/dev/null || uptime)"
 
@@ -1360,12 +1360,12 @@ show_info() {
     disk_pct=$(df -k "$HOME" | awk 'NR==2 {print $5}')
     echo "Disk        : $(( disk_used / 1024 ))MB used, $(( disk_avail / 1024 ))MB free  ($disk_pct)"
 
-    # ── Script version ────────────────────────────────────────────────────────
+    # -- Script version --------------------------------------------------------
     echo
     echo "Script      : v${SCRIPT_VERSION}"
 }
 
-# ── tail-all ──────────────────────────────────────────────────────────────────
+# -- tail-all ------------------------------------------------------------------
 # Interleave command log and Arduino serial log with timestamps
 tail_all() {
     local n="${1:-50}"
@@ -1410,7 +1410,7 @@ tail_all() {
     '
 }
 
-# ── test-upload ───────────────────────────────────────────────────────────────
+# -- test-upload ---------------------------------------------------------------
 # Compile-only (no upload) to verify sketch builds cleanly
 cmd_test_upload() {
     local sketch_dir="${1:-Everything}"
@@ -1447,7 +1447,7 @@ cmd_test_upload() {
     }
 }
 
-# ── scoremore-logs ────────────────────────────────────────────────────────────
+# -- scoremore-logs ------------------------------------------------------------
 # Find and tail ScoreMore's own application logs
 scoremore_logs() {
     local subcmd="${1:-show}"
@@ -1541,7 +1541,7 @@ ensure_directories() {
 wait_for_network() {
     local timeout="${1:-30}"
     local elapsed=0
-    # Try multiple hosts — 8.8.8.8 may be blocked on some networks
+    # Try multiple hosts - 8.8.8.8 may be blocked on some networks
     local hosts=(8.8.8.8 1.1.1.1 9.9.9.9)
 
     echo -n "Waiting for network"
@@ -1587,7 +1587,7 @@ update_script() {
         fi
         echo "→ $behind new commit(s) available — pulling..."
 
-        # Reset any local modifications in the clone — this is a pure mirror,
+        # Reset any local modifications in the clone - this is a pure mirror,
         # not a working copy, so local edits should never be preserved
         if ! git -C "$script_repo_dir" diff --quiet 2>/dev/null || \
            ! git -C "$script_repo_dir" diff --cached --quiet 2>/dev/null; then
@@ -1596,7 +1596,7 @@ update_script() {
         fi
 
         git -C "$script_repo_dir" pull --quiet origin main || {
-            # Pull still failed — nuclear option: delete and re-clone
+            # Pull still failed - nuclear option: delete and re-clone
             echo -e "  ${YELLOW}Pull failed — re-cloning from scratch...${NC}"
             rm -rf "$script_repo_dir"
             mkdir -p "$(dirname "$script_repo_dir")"
@@ -1614,7 +1614,7 @@ update_script() {
     local new_version
     new_version=$(grep -m1 'SCRIPT_VERSION=' "$new_script" | sed 's/.*SCRIPT_VERSION="//;s/".*//' || echo "unknown")
 
-    # Validate syntax before installing — a broken update should never reach /usr/bin
+    # Validate syntax before installing - a broken update should never reach /usr/bin
     echo "→ Validating syntax of new script..."
     if ! bash -n "$new_script" 2>/dev/null; then
         die "New script failed syntax check — aborting update to protect the installed version.
@@ -1715,7 +1715,7 @@ backup_config() {
     [[ -d "$PROJECT_DIR" ]]            && items+=("$PROJECT_DIR")
     [[ -d "$HOME/.config/ScoreMore" ]] && items+=("$HOME/.config/ScoreMore")
 
-    # AppImage is 100MB+ and can be re-downloaded — skip by default
+    # AppImage is 100MB+ and can be re-downloaded - skip by default
     if $include_appimage; then
         [[ -f "$SYMLINK_PATH" ]] && items+=("$(readlink -f "$SYMLINK_PATH")")
     else
@@ -1753,7 +1753,7 @@ backup_config() {
     echo "  Total backups kept: $total_backups / 10"
 }
 
-# Item 10: doctor — check all required dependencies are present
+# Item 10: doctor - check all required dependencies are present
 doctor() {
     echo "=== Dependency Check ==="
     echo
@@ -1794,12 +1794,12 @@ doctor() {
     done
 
     echo
-    # Serial port access — dialout group membership
+    # Serial port access - dialout group membership
     echo "Serial port access:"
     local current_user
     current_user=$(id -un)
     if id -nG "$current_user" 2>/dev/null | grep -qw "dialout"; then
-        # User is in dialout in /etc/group — but check if current session has it active
+        # User is in dialout in /etc/group - but check if current session has it active
         if ! id -Gn 2>/dev/null | grep -qw "dialout"; then
             printf "  ${YELLOW}!${NC}  $current_user is in dialout but needs to log out and back in\n"
             echo "     The group was added but this session predates it."
@@ -1824,7 +1824,7 @@ doctor() {
     fi
 }
 
-# Item 1: pre-flight check — verify all conditions before a deploy
+# Item 1: pre-flight check - verify all conditions before a deploy
 preflight() {
     local quick=false
     for arg in "$@"; do
@@ -2131,7 +2131,7 @@ schedule_deploy() {
     script_path=$(command -v mini-bowling.sh 2>/dev/null) || script_path="$0"
     script_path=$(realpath -- "$script_path")
 
-    # Warn if the script isn't in a standard system PATH location — cron runs with
+    # Warn if the script isn't in a standard system PATH location - cron runs with
     # a minimal PATH (/usr/bin:/bin) so it won't find scripts in ~/bin or similar
     case "$script_path" in
         /usr/bin/*|/usr/local/bin/*|/bin/*)
@@ -2197,7 +2197,7 @@ cmd_rollback() {
     git -C "$PROJECT_DIR" log --oneline -1
     echo
 
-    # Item 4: confirmation prompt — rollback resets git history
+    # Item 4: confirmation prompt - rollback resets git history
     echo -e "${YELLOW}Warning:${NC} This will reset $steps git commit(s) with 'git reset --hard'."
     echo "This cannot be undone unless you have the commit hashes."
     local countdown=5
@@ -2579,7 +2579,7 @@ serial_log() {
 
 # Item 2 / 7: check if ScoreMore is running and restart if not
 watchdog() {
-    # Don't restart ScoreMore if a deploy is actively running — the deploy
+    # Don't restart ScoreMore if a deploy is actively running - the deploy
     # intentionally kills ScoreMore before uploading and restarts it afterward
     local deploy_lock="/tmp/mini-bowling-deploy.lock"
     if [[ -f "$deploy_lock" ]]; then
@@ -2735,7 +2735,7 @@ disk_cleanup() {
     done < <(find "$LOG_DIR" -maxdepth 1 -name "mini-bowling-*.log" -mtime +30 -print0 2>/dev/null)
     [[ $log_removed -gt 0 ]] && echo "→ Removed $log_removed old log file(s)" || true
 
-    # Report backup directory size — backups are not auto-removed here,
+    # Report backup directory size - backups are not auto-removed here,
     # only the 10-backup limit enforced by `backup` applies
     local backup_dir="$HOME/Documents/Bowling/backups"
     if [[ -d "$backup_dir" ]]; then
@@ -2874,7 +2874,7 @@ vnc_status() {
     echo "=== VNC Status ==="
     echo
 
-    # ── 1. Installation ───────────────────────────────────────────────────────
+    # -- 1. Installation -------------------------------------------------------
 
     local vnc_bin=""
     local vnc_flavor=""
@@ -2905,7 +2905,7 @@ vnc_status() {
 
     echo -e "Installed   : ${GREEN}${vnc_flavor}${NC}  ($vnc_bin)"
 
-    # ── 2. Service / running state ────────────────────────────────────────────
+    # -- 2. Service / running state --------------------------------------------
 
     local service_running=false
     local service_name=""
@@ -2938,7 +2938,7 @@ vnc_status() {
         echo    "   — or — vncserver :1"
     fi
 
-    # ── 3. Active VNC displays / ports ────────────────────────────────────────
+    # -- 3. Active VNC displays / ports ----------------------------------------
 
     # Each Xvnc display :N listens on port 5900+N
     local displays
@@ -2958,7 +2958,7 @@ vnc_status() {
         echo -e "Displays    : ${YELLOW}none listening${NC}"
     fi
 
-    # ── 4. Autostart ──────────────────────────────────────────────────────────
+    # -- 4. Autostart ----------------------------------------------------------
 
     local autostart_status=""
 
@@ -2986,7 +2986,7 @@ vnc_status() {
         echo    "   — or — sudo raspi-config  → Interface Options → VNC"
     fi
 
-    # ── 5. VNC port reachability from localhost ────────────────────────────────
+    # -- 5. VNC port reachability from localhost --------------------------------
 
     local port_ok=false
     for port in 5900 5901; do
@@ -3042,7 +3042,7 @@ vnc_setup() {
         *) die "Unknown vnc-setup subcommand: '$subcmd' — use start, stop, enable-autostart, or disable-autostart" ;;
     esac
 
-    # ── Detect installed VNC flavor ───────────────────────────────────────────
+    # -- Detect installed VNC flavor -------------------------------------------
 
     local vnc_bin=""
     local vnc_flavor=""
@@ -3070,7 +3070,7 @@ vnc_setup() {
     case "$subcmd" in
 
         start)
-            # ── Start VNC now ─────────────────────────────────────────────────
+            # -- Start VNC now -------------------------------------------------
             echo -e "${YELLOW}Starting VNC ($vnc_flavor)...${NC}"
 
             # Check if already running
@@ -3106,7 +3106,7 @@ vnc_setup() {
             ;;
 
         stop)
-            # ── Stop VNC ──────────────────────────────────────────────────────
+            # -- Stop VNC ------------------------------------------------------
             echo -e "${YELLOW}Stopping VNC ($vnc_flavor)...${NC}"
 
             local _vnc_service
@@ -3132,7 +3132,7 @@ vnc_setup() {
             ;;
 
         enable-autostart)
-            # ── Enable autostart on boot ───────────────────────────────────────
+            # -- Enable autostart on boot ---------------------------------------
             echo -e "${YELLOW}Enabling VNC autostart on boot ($vnc_flavor)...${NC}"
 
             local _vnc_service
@@ -3144,7 +3144,7 @@ vnc_setup() {
                 echo    "  VNC will start automatically on next boot."
                 echo    "  To start now:  mini-bowling.sh pi vnc start"
             else
-                # No systemd service — try raspi-config if available
+                # No systemd service - try raspi-config if available
                 if command -v raspi-config >/dev/null 2>&1; then
                     echo "No systemd service found. Enabling via raspi-config..."
                     sudo raspi-config nonint do_vnc 0 || \
@@ -3159,7 +3159,7 @@ Then re-run: mini-bowling.sh vnc-setup enable-autostart"
             ;;
 
         disable-autostart)
-            # ── Disable autostart ─────────────────────────────────────────────
+            # -- Disable autostart ---------------------------------------------
             echo -e "${YELLOW}Disabling VNC autostart ($vnc_flavor)...${NC}"
 
             local _vnc_service
@@ -3492,7 +3492,7 @@ EOF
             _log=false ;;
         system)
             # system doctor/preflight/ports/tail-all/wait-for-network are read-only
-            # system backup/repair/cleanup/install/script DO modify state — log those
+            # system backup/repair/cleanup/install/script DO modify state - log those
             case "${2:-}" in
                 doctor|preflight|ports|tail-all|wait-for-network|watchdog)
                     _log=false ;;
@@ -3533,13 +3533,13 @@ EOF
 
     shift
 
-    # Commands using sudo need a real TTY — run them directly, log header only
+    # Commands using sudo need a real TTY - run them directly, log header only
     local bypass_tee=false
     if [[ "$cmd" == "pi" ]]; then
         bypass_tee=true
     fi
 
-    # Dispatch — if logging is active, pipe stdout to tee without exec redirects
+    # Dispatch - if logging is active, pipe stdout to tee without exec redirects
     if [[ -n "${MINI_BOWLING_LOG:-}" ]] && ! $bypass_tee; then
         _dispatch "$cmd" "$@" | tee -a "$MINI_BOWLING_LOG"
         local dispatch_exit="${PIPESTATUS[0]}"
@@ -3555,7 +3555,7 @@ _dispatch() {
     local cmd="$1"
     shift
 
-    # ── Helper: resolve download version ─────────────────────────────────────
+    # -- Helper: resolve download version -------------------------------------
     _resolve_dl_version() {
         local ver="$1"
         if [[ "$ver" == "latest" ]]; then
@@ -3572,7 +3572,7 @@ _dispatch() {
         echo "$ver"
     }
 
-    # ── Helper: upload dispatch shared logic ─────────────────────────────────
+    # -- Helper: upload dispatch shared logic ---------------------------------
     _do_upload() {
         local sketch="$1" branch="$2" kill_app="$3"
         with_git_branch "$branch" cmd_compile_and_upload "$sketch" "$kill_app"
@@ -3587,7 +3587,7 @@ _dispatch() {
 
     case "$cmd" in
 
-        # ── status / info (top-level shortcuts) ──────────────────────────────
+        # -- status / info (top-level shortcuts) ------------------------------
         status)
             if [[ "${1:-}" == "--watch" || "${1:-}" == "-w" ]]; then
                 watch_status "${2:-5}"
@@ -3600,12 +3600,12 @@ _dispatch() {
             show_info
             ;;
 
-        # ── version (top-level shortcut) ──────────────────────────────────────
+        # -- version (top-level shortcut) --------------------------------------
         version)
             script_version
             ;;
 
-        # ── deploy ────────────────────────────────────────────────────────────
+        # -- deploy ------------------------------------------------------------
         deploy)
             local subcmd="${1:-run}"
             # If first arg looks like a flag, treat as bare deploy
@@ -3625,13 +3625,13 @@ _dispatch() {
             esac
             ;;
 
-        # ── sketch ────────────────────────────────────────────────────────────
-        # ── code (sketch + branch) ────────────────────────────────────────────
+        # -- sketch ------------------------------------------------------------
+        # -- code (sketch + branch) --------------------------------------------
         code)
             local codecmd="${1:-help}"; shift 2>/dev/null || true
             case "$codecmd" in
 
-                # code sketch ─────────────────────────────────────────────────
+                # code sketch -------------------------------------------------
                 sketch)
                     local subcmd="${1:-upload}"; shift 2>/dev/null || true
                     case "$subcmd" in
@@ -3666,7 +3666,7 @@ _dispatch() {
                     esac
                     ;;
 
-                # code branch ─────────────────────────────────────────────────
+                # code branch -------------------------------------------------
                 branch)
                     local subcmd="${1:-list}"; shift 2>/dev/null || true
                     case "$subcmd" in
@@ -3712,7 +3712,7 @@ _dispatch() {
             esac
             ;;
 
-        # ── scoremore ─────────────────────────────────────────────────────────
+        # -- scoremore ---------------------------------------------------------
         scoremore)
             local subcmd="${1:-restart}"; shift 2>/dev/null || true
             case "$subcmd" in
@@ -3737,7 +3737,7 @@ _dispatch() {
             esac
             ;;
 
-        # ── system ────────────────────────────────────────────────────────────
+        # -- system ------------------------------------------------------------
         system)
             local subcmd="${1:-help}"; shift 2>/dev/null || true
             case "$subcmd" in
@@ -3815,12 +3815,12 @@ _dispatch() {
             esac
             ;;
 
-        # ── logs (top-level shortcut) ─────────────────────────────────────────
+        # -- logs (top-level shortcut) -----------------------------------------
         logs)
             show_logs "$@"
             ;;
 
-        # ── install (top-level) ───────────────────────────────────────────────
+        # -- install (top-level) -----------------------------------------------
         install)
             local instcmd="${1:-setup}"; shift 2>/dev/null || true
             case "$instcmd" in
@@ -3834,7 +3834,7 @@ _dispatch() {
             esac
             ;;
 
-        # ── script (top-level) ────────────────────────────────────────────────
+        # -- script (top-level) ------------------------------------------------
         script)
             local scrcmd="${1:-version}"; shift 2>/dev/null || true
             case "$scrcmd" in

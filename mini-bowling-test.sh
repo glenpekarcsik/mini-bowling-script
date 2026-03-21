@@ -903,19 +903,19 @@ _dispatch "\$@"
 WRAPPER
 chmod +x "$_MOCK_WRAPPER"
 
-out=$(bash "$_MOCK_WRAPPER" upload --Master_Test 2>/dev/null || true)
+out=$(bash "$_MOCK_WRAPPER" code sketch upload --Master_Test 2>/dev/null || true)
 if echo "$out" | grep -q "SCOREMORE_KILLED"; then
-    fail "upload --Master_Test should NOT kill ScoreMore"
+    fail "sketch upload --Master_Test should NOT kill ScoreMore"
 else
     pass "upload --Master_Test does not kill ScoreMore"
 fi
 if echo "$out" | grep -q "SCOREMORE_STARTED"; then
-    fail "upload --Master_Test should NOT start ScoreMore"
+    fail "sketch upload --Master_Test should NOT start ScoreMore"
 else
     pass "upload --Master_Test does not start ScoreMore"
 fi
 
-out=$(bash "$_MOCK_WRAPPER" upload --Everything 2>/dev/null || true)
+out=$(bash "$_MOCK_WRAPPER" code sketch upload --Everything 2>/dev/null || true)
 # kill_app flag is passed to cmd_compile_and_upload — check it's "true" for Everything
 if echo "$out" | grep -q "kill_app:true"; then
     pass "upload --Everything passes kill_app=true to compile"
@@ -1339,15 +1339,12 @@ fi
 suite "vnc-status — command dispatch and output structure"
 # ─────────────────────────────────────────────────────────────────────────────
 
-# vnc-status is a read-only status command — test that it exits 0 and produces
-# structured output regardless of whether VNC is actually installed.
-run bash "$SCRIPT" vnc-status
+run bash "$SCRIPT" pi vnc status
 assert_exit "vnc-status exits 0" 0
 assert_output_contains "vnc-status prints header"     "VNC Status"
 assert_output_contains "vnc-status reports installed" "Installed"
 
-# Service/Autostart/Connect-to only appear when a VNC server is installed
-if bash "$SCRIPT" vnc-status 2>/dev/null | grep -q "No VNC server found"; then
+if bash "$SCRIPT" pi vnc status 2>/dev/null | grep -q "No VNC server found"; then
     skip "vnc-status reports service"   "VNC not installed"
     skip "vnc-status reports autostart" "VNC not installed"
 else
@@ -1359,17 +1356,14 @@ fi
 suite "vnc-setup — command dispatch and subcommand validation"
 # ─────────────────────────────────────────────────────────────────────────────
 
-# No subcommand: should print usage and exit 0
-run bash "$SCRIPT" vnc-setup
-assert_exit "vnc-setup with no args exits 0" 0
-assert_output_contains "vnc-setup shows usage"   "Usage"
-assert_output_contains "vnc-setup lists start"   "start"
-assert_output_contains "vnc-setup lists enable"  "enable-autostart"
+# No subcommand: pi vnc with no sub should show status (exits 0)
+run bash "$SCRIPT" pi vnc status
+assert_exit "pi vnc status exits 0" 0
 
 # Unknown subcommand: should exit non-zero with error message
-run bash "$SCRIPT" vnc-setup bogus-subcommand
-assert_nonzero "vnc-setup with unknown subcommand exits non-zero"
-assert_output_contains "vnc-setup unknown subcommand error" "bogus-subcommand"
+run bash "$SCRIPT" pi vnc bogus-subcommand
+assert_nonzero "pi vnc with unknown subcommand exits non-zero"
+assert_output_contains "pi vnc unknown subcommand error" "bogus-subcommand"
 
 fi  # end unit tests
 
@@ -1397,7 +1391,7 @@ $SCOREMORE_PRESENT  && pass "ScoreMore symlink exists"  || skip "ScoreMore symli
 suite "Integration — preflight"
 
 if $ARDUINO_PRESENT && $ARDUINO_CLI_PRESENT; then
-    run bash "$SCRIPT" preflight
+    run bash "$SCRIPT" system preflight
     assert_exit "preflight exits 0 with Arduino connected" 0
     assert_output_contains "preflight checks Arduino port" "Arduino"
 else
@@ -1417,69 +1411,66 @@ assert_output_contains "status shows VNC line"        "VNC"
 
 suite "Integration — doctor"
 
-run bash "$SCRIPT" doctor
+run bash "$SCRIPT" system doctor
 assert_exit "doctor exits 0" 0
 assert_output_contains "doctor checks git"         "git"
 assert_output_contains "doctor checks curl"        "curl"
 assert_output_contains "doctor checks arduino-cli" "arduino-cli"
 assert_output_contains "doctor checks dialout"     "dialout"
 
-suite "Integration — check-update"
+suite "Integration — branch check"
 
 if ping -c 1 -W 3 8.8.8.8 >/dev/null 2>&1; then
-    run bash "$SCRIPT" check-update
-    assert_exit "check-update exits 0 with network" 0
+    run bash "$SCRIPT" code branch check
+    assert_exit "code branch check exits 0 with network" 0
 else
-    skip "check-update" "no network"
+    skip "code branch check" "no network"
 fi
 
-suite "Integration — upload dry path (--list-sketches)"
+suite "Integration — sketch list"
 
 if $ARDUINO_CLI_PRESENT; then
-    run bash "$SCRIPT" upload --list-sketches
-    assert_exit "upload --list-sketches exits 0" 0
+    run bash "$SCRIPT" code sketch list
+    assert_exit "code sketch list exits 0" 0
 else
-    skip "upload --list-sketches" "arduino-cli not installed"
+    skip "code sketch list" "arduino-cli not installed"
 fi
 
-suite "Integration — vnc-status"
+suite "Integration — pi vnc status"
 
-run bash "$SCRIPT" vnc-status
-assert_exit "vnc-status exits 0" 0
-assert_output_contains "vnc-status shows structured output" "VNC Status"
+run bash "$SCRIPT" pi vnc status
+assert_exit "pi vnc status exits 0" 0
+assert_output_contains "pi vnc status shows structured output" "VNC Status"
 
-# If VNC is running, verify it reports a connect address
 if pgrep -f "Xvnc\|vncserver\|x11vnc\|wayvnc" >/dev/null 2>&1 || \
    ss -tlnp 2>/dev/null | grep -q ":590"; then
-    assert_output_contains "vnc-status shows connect address when running" "Connect to"
+    assert_output_contains "pi vnc status shows connect address when running" "Connect to"
 else
-    skip "vnc-status connect address" "VNC not running"
+    skip "pi vnc status connect address" "VNC not running"
 fi
 
-suite "Integration — vnc-setup"
+suite "Integration — pi vnc subcommands"
 
-# No subcommand always works
-run bash "$SCRIPT" vnc-setup
-assert_exit "vnc-setup no-args exits 0" 0
+run bash "$SCRIPT" pi vnc status
+assert_exit "pi vnc status exits 0" 0
 
-# start/stop/enable/disable only run if VNC is installed
 if command -v vncserver >/dev/null 2>&1 || command -v x11vnc >/dev/null 2>&1; then
-    run bash "$SCRIPT" vnc-setup start
-    assert_exit "vnc-setup start exits 0" 0
+    run bash "$SCRIPT" pi vnc start
+    assert_exit "pi vnc start exits 0" 0
 
-    run bash "$SCRIPT" vnc-setup stop
-    assert_exit "vnc-setup stop exits 0" 0
+    run bash "$SCRIPT" pi vnc stop
+    assert_exit "pi vnc stop exits 0" 0
 
-    run bash "$SCRIPT" vnc-setup enable-autostart
-    assert_exit "vnc-setup enable-autostart exits 0" 0
+    run bash "$SCRIPT" pi vnc enable
+    assert_exit "pi vnc enable exits 0" 0
 
-    run bash "$SCRIPT" vnc-setup disable-autostart
-    assert_exit "vnc-setup disable-autostart exits 0" 0
+    run bash "$SCRIPT" pi vnc disable
+    assert_exit "pi vnc disable exits 0" 0
 else
-    skip "vnc-setup start"            "VNC not installed"
-    skip "vnc-setup stop"             "VNC not installed"
-    skip "vnc-setup enable-autostart" "VNC not installed"
-    skip "vnc-setup disable-autostart" "VNC not installed"
+    skip "pi vnc start"   "VNC not installed"
+    skip "pi vnc stop"    "VNC not installed"
+    skip "pi vnc enable"  "VNC not installed"
+    skip "pi vnc disable" "VNC not installed"
 fi
 
 fi  # end integration tests

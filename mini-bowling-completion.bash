@@ -2,21 +2,8 @@
 # =============================================================================
 #  mini-bowling-completion.bash — bash tab completion for mini-bowling.sh
 #
-#  Install (pick one):
-#
-#  System-wide (recommended — works for all users and cron):
+#  Install:
 #    sudo cp mini-bowling-completion.bash /etc/bash_completion.d/mini-bowling.sh
-#
-#  Current user only:
-#    cp mini-bowling-completion.bash ~/.local/share/bash-completion/completions/mini-bowling.sh
-#    # Then add to ~/.bashrc if not auto-loaded:
-#    # source ~/.local/share/bash-completion/completions/mini-bowling.sh
-#
-#  Or source directly from ~/.bashrc for immediate use:
-#    echo 'source /path/to/mini-bowling-completion.bash' >> ~/.bashrc
-#    source ~/.bashrc
-#
-#  Reload without rebooting:
 #    source /etc/bash_completion.d/mini-bowling.sh
 # =============================================================================
 
@@ -24,250 +11,148 @@ _mini_bowling_complete() {
     local cur prev words cword
     _init_completion || return
 
-    # ── Top-level commands ────────────────────────────────────────────────────
-    local commands="
-        status version install preflight doctor
-        deploy upload update check-update rollback
-        download check-scoremore-update scoremore-version
-        scoremore-history rollback-scoremore start-scoremore
-        setup-autostart remove-autostart
-        watchdog setup-watchdog
-        schedule-deploy unschedule-deploy
-        serial-log console list
-        logs update-script backup disk-cleanup
-        wait-for-network create-dir install-cli
-        pi-status pi-update pi-reboot pi-shutdown
-        wifi-status vnc-status vnc-setup
-        restart repair ports info tail-all test-upload scoremore-logs switch-branch
-    "
+    local top_cmds="status info version deploy code scoremore pi logs system install script"
 
-    # ── Completion for second word (subcommands / flags) ──────────────────────
-    case "$prev" in
+    # Word positions
+    local cmd="${words[1]:-}"
+    local sub="${words[2]:-}"
+    local subsub="${words[3]:-}"
 
-        mini-bowling.sh|mini-bowling)
-            COMPREPLY=( $(compgen -W "$commands" -- "$cur") )
-            return 0
-            ;;
+    # Helper: get project dir from installed script
+    _mb_project_dir() {
+        local sp; sp=$(command -v mini-bowling.sh 2>/dev/null)
+        [[ -n "$sp" ]] || return
+        grep -m1 'PROJECT_DIR=' "$sp" 2>/dev/null | \
+            sed 's/.*PROJECT_DIR="\(.*\)"/\1/' | \
+            sed "s|\$HOME|$HOME|g;s|~|$HOME|g"
+    }
 
-        logs)
-            COMPREPLY=( $(compgen -W "list follow dump tail clean" -- "$cur") )
-            return 0
-            ;;
+    # Helper: get sketch names as --FolderName
+    _mb_sketches() {
+        local pd; pd=$(_mb_project_dir)
+        [[ -n "$pd" && -d "$pd" ]] || return
+        find "$pd" -mindepth 1 -maxdepth 1 -type d \
+            ! -name '.*' ! -name 'build' ! -name 'cache' ! -name 'libraries' \
+            -printf '--%f\n' 2>/dev/null | sort
+    }
 
-        serial-log)
-            COMPREPLY=( $(compgen -W "start stop status tail" -- "$cur") )
-            return 0
-            ;;
+    # Helper: get git branches
+    _mb_branches() {
+        local pd; pd=$(_mb_project_dir)
+        [[ -n "$pd" && -d "$pd/.git" ]] || return
+        git -C "$pd" branch -a 2>/dev/null | \
+            sed 's|^\*\? *||;s|remotes/origin/||' | \
+            grep -v HEAD | sort -u
+    }
 
-        scoremore-history)
-            COMPREPLY=( $(compgen -W "list use clean" -- "$cur") )
-            return 0
-            ;;
+    # Helper: get log dates
+    _mb_log_dates() {
+        local sp; sp=$(command -v mini-bowling.sh 2>/dev/null)
+        [[ -n "$sp" ]] || return
+        local ld; ld=$(grep -m1 'LOG_DIR=' "$sp" 2>/dev/null | \
+            sed 's/.*LOG_DIR="\(.*\)"/\1/' | sed "s|\$HOME|$HOME|g;s|~|$HOME|g")
+        [[ -n "$ld" && -d "$ld" ]] || return
+        find "$ld" -maxdepth 1 -name 'mini-bowling-*.log' -printf '%f\n' 2>/dev/null | \
+            sed 's/^mini-bowling-//;s/\.log$//' | sort -r
+    }
 
-        setup-watchdog)
-            COMPREPLY=( $(compgen -W "enable disable status" -- "$cur") )
-            return 0
-            ;;
+    # Helper: get ScoreMore versions
+    _mb_sm_versions() {
+        local sp; sp=$(command -v mini-bowling.sh 2>/dev/null)
+        [[ -n "$sp" ]] || return
+        local sd; sd=$(grep -m1 'SCOREMORE_DIR=' "$sp" 2>/dev/null | \
+            sed 's/.*SCOREMORE_DIR="\(.*\)"/\1/' | sed "s|\$HOME|$HOME|g;s|~|$HOME|g")
+        [[ -n "$sd" && -d "$sd" ]] || return
+        find "$sd" -maxdepth 1 -name 'ScoreMore-*.AppImage' -printf '%f\n' 2>/dev/null | \
+            sed 's/^ScoreMore-//;s/-arm64\.AppImage$//' | sort -V -r
+    }
 
-        vnc-setup)
-            COMPREPLY=( $(compgen -W "start stop enable-autostart disable-autostart" -- "$cur") )
-            return 0
-            ;;
-
-        scoremore-logs)
-            COMPREPLY=( $(compgen -W "show list tail dump" -- "$cur") )
-            return 0
-            ;;
-
-        test-upload)
-            # Offer sketch folder names
-            local sketches=""
-            local script_path
-            script_path=$(command -v mini-bowling.sh 2>/dev/null)
-            if [[ -n "$script_path" ]]; then
-                local project_dir
-                project_dir=$(grep -m1 'PROJECT_DIR=' "$script_path" 2>/dev/null | \
-                    sed 's/.*PROJECT_DIR="\(.*\)"/\1/' | \
-                    sed "s|\$HOME|$HOME|g" | sed "s|~|$HOME|g" || true)
-                if [[ -n "$project_dir" && -d "$project_dir" ]]; then
-                    sketches=$(find "$project_dir" -mindepth 1 -maxdepth 1 -type d \
-                        ! -name '.*' ! -name 'build' ! -name 'cache' ! -name 'libraries' \
-                        -printf '--%f\n' 2>/dev/null | sort)
-                fi
-            fi
-            COMPREPLY=( $(compgen -W "$sketches" -- "$cur") )
-            return 0
-            ;;
-
-        status)
-            COMPREPLY=( $(compgen -W "--watch -w" -- "$cur") )
-            return 0
-            ;;
-
-        tail-all)
-            COMPREPLY=( $(compgen -W "50 100 200" -- "$cur") )
-            return 0
-            ;;
-
-        upload)
-            # Offer --list-sketches, --list-branches, --no-kill, --branch, plus any sketch folders
-            local sketches=""
-            local script_path
-            script_path=$(command -v mini-bowling.sh 2>/dev/null)
-            if [[ -n "$script_path" ]]; then
-                local project_dir
-                project_dir=$(grep -m1 'PROJECT_DIR=' "$script_path" 2>/dev/null | \
-                    sed 's/.*PROJECT_DIR="\(.*\)"/\1/' | \
-                    sed "s|\$HOME|$HOME|g" | \
-                    sed "s|~|$HOME|g" || true)
-                if [[ -n "$project_dir" && -d "$project_dir" ]]; then
-                    sketches=$(find "$project_dir" -mindepth 1 -maxdepth 1 -type d \
-                        ! -name '.*' ! -name 'build' ! -name 'cache' ! -name 'libraries' \
-                        -printf '--%f\n' 2>/dev/null | sort)
-                fi
-            fi
-            COMPREPLY=( $(compgen -W "--list-sketches --list-branches --no-kill --branch $sketches" -- "$cur") )
-            return 0
-            ;;
-
-        switch-branch)
-            # Suggest available git branches
-            local script_path project_dir=""
-            script_path=$(command -v mini-bowling.sh 2>/dev/null)
-            if [[ -n "$script_path" ]]; then
-                project_dir=$(grep -m1 'PROJECT_DIR=' "$script_path" 2>/dev/null | \
-                    sed 's/.*PROJECT_DIR="\(.*\)"/\1/' | \
-                    sed "s|\$HOME|$HOME|g" | sed "s|~|$HOME|g" || true)
-            fi
-            if [[ -n "$project_dir" && -d "$project_dir/.git" ]]; then
-                local branches
-                branches=$(git -C "$project_dir" branch -a 2>/dev/null | \
-                    sed 's|^\*\? *||;s|remotes/origin/||' | \
-                    grep -v HEAD | sort -u)
-                COMPREPLY=( $(compgen -W "$branches" -- "$cur") )
-            fi
-            return 0
-            ;;
-
-        rollback)
-            # Suggest common step counts
-            COMPREPLY=( $(compgen -W "1 2 3" -- "$cur") )
-            return 0
-            ;;
-
-        download)
-            COMPREPLY=( $(compgen -W "latest" -- "$cur") )
-            return 0
-            ;;
-
-        backup)
-            COMPREPLY=( $(compgen -W "--include-appimage" -- "$cur") )
-            return 0
-            ;;
-
-        preflight)
-            COMPREPLY=( $(compgen -W "--quick -q" -- "$cur") )
-            return 0
-            ;;
-
-        schedule-deploy)
-            # Suggest common deploy times
-            COMPREPLY=( $(compgen -W "02:00 02:30 03:00 03:30 04:00" -- "$cur") )
-            return 0
-            ;;
-
-        wait-for-network)
-            # Suggest common timeout values
-            COMPREPLY=( $(compgen -W "30 60 120" -- "$cur") )
-            return 0
-            ;;
-
-        logs)
-            COMPREPLY=( $(compgen -W "list follow dump tail clean" -- "$cur") )
-            return 0
-            ;;
-
-        scoremore-history)
-            COMPREPLY=( $(compgen -W "list use clean" -- "$cur") )
-            return 0
-            ;;
-    esac
-
-    # ── Completion for third word (flags after subcommands) ───────────────────
-    if [[ ${#words[@]} -ge 3 ]]; then
-        local cmd="${words[1]}"
-        local subcmd="${words[2]}"
-
-        case "$cmd" in
-            logs)
-                case "$subcmd" in
-                    clean)
-                        COMPREPLY=( $(compgen -W "--keep" -- "$cur") )
-                        return 0
-                        ;;
-                    tail)
-                        COMPREPLY=( $(compgen -W "50 100 200 --date" -- "$cur") )
-                        return 0
-                        ;;
-                    dump)
-                        COMPREPLY=( $(compgen -W "--date" -- "$cur") )
-                        return 0
-                        ;;
-                esac
-                ;;
-            deploy)
-                case "$subcmd" in
-                    --branch)
-                        # Suggest git branches if available
-                        local project_dir=""
-                        local script_path
-                        script_path=$(command -v mini-bowling.sh 2>/dev/null)
-                        if [[ -n "$script_path" ]]; then
-                            project_dir=$(grep -m1 'PROJECT_DIR=' "$script_path" 2>/dev/null | \
-                                sed 's/.*PROJECT_DIR="\(.*\)"/\1/' | \
-                                sed "s|\$HOME|$HOME|g" | sed "s|~|$HOME|g" || true)
-                        fi
-                        if [[ -n "$project_dir" && -d "$project_dir/.git" ]]; then
-                            local branches
-                            branches=$(git -C "$project_dir" branch -a 2>/dev/null | \
-                                sed 's|.*remotes/origin/||;s|^\*\? *||' | grep -v HEAD | sort -u)
-                            COMPREPLY=( $(compgen -W "$branches" -- "$cur") )
-                        else
-                            COMPREPLY=( $(compgen -W "main master" -- "$cur") )
-                        fi
-                        return 0
-                        ;;
-                esac
-                ;;
-            scoremore-history)
-                case "$subcmd" in
-                    use)
-                        # List available AppImage versions
-                        local script_path
-                        script_path=$(command -v mini-bowling.sh 2>/dev/null)
-                        local sm_dir=""
-                        if [[ -n "$script_path" ]]; then
-                            sm_dir=$(grep -m1 'SCOREMORE_DIR=' "$script_path" 2>/dev/null | \
-                                sed 's/.*SCOREMORE_DIR="\(.*\)"/\1/' | \
-                                sed "s|\$HOME|$HOME|g" | sed "s|~|$HOME|g" || true)
-                        fi
-                        if [[ -n "$sm_dir" && -d "$sm_dir" ]]; then
-                            local versions
-                            versions=$(find "$sm_dir" -maxdepth 1 -name 'ScoreMore-*.AppImage' \
-                                -printf '%f\n' 2>/dev/null | \
-                                sed 's/^ScoreMore-//;s/-arm64\.AppImage$//' | sort -V -r)
-                            COMPREPLY=( $(compgen -W "$versions" -- "$cur") )
-                        fi
-                        return 0
-                        ;;
-                esac
-                ;;
-        esac
+    # ── Top level ─────────────────────────────────────────────────────────────
+    if [[ $cword -eq 1 ]]; then
+        COMPREPLY=( $(compgen -W "$top_cmds" -- "$cur") )
+        return 0
     fi
 
-    # Default: complete top-level commands if nothing matched
-    if [[ "$cword" -eq 1 ]]; then
-        COMPREPLY=( $(compgen -W "$commands" -- "$cur") )
+    # ── Second level ──────────────────────────────────────────────────────────
+    if [[ $cword -eq 2 ]]; then
+        case "$cmd" in
+            status)   COMPREPLY=( $(compgen -W "--watch -w" -- "$cur") ) ;;
+            deploy)   COMPREPLY=( $(compgen -W "--dry-run --no-kill --branch schedule unschedule" -- "$cur") ) ;;
+            sketch)   COMPREPLY=( $(compgen -W "upload list test rollback" -- "$cur") ) ;;
+            branch)   COMPREPLY=( $(compgen -W "list checkout switch update check" -- "$cur") ) ;;
+            scoremore) COMPREPLY=( $(compgen -W "start stop restart download version check-update history rollback autostart remove-autostart logs" -- "$cur") ) ;;
+            pi)       COMPREPLY=( $(compgen -W "status update reboot shutdown wifi vnc" -- "$cur") ) ;;
+            logs)     COMPREPLY=( $(compgen -W "follow dump tail clean" -- "$cur") ) ;;
+            system)   COMPREPLY=( $(compgen -W "doctor preflight backup repair cleanup ports tail-all install script wait-for-network serial watchdog" -- "$cur") ) ;;
+        esac
+        return 0
+    fi
+
+    # ── Third level ───────────────────────────────────────────────────────────
+    if [[ $cword -eq 3 ]]; then
+        case "$cmd" in
+            sketch)
+                case "$sub" in
+                    upload|test) COMPREPLY=( $(compgen -W "--no-kill --branch $(_mb_sketches)" -- "$cur") ) ;;
+                    rollback)    COMPREPLY=( $(compgen -W "1 2 3" -- "$cur") ) ;;
+                esac ;;
+            branch)
+                case "$sub" in
+                    checkout|switch) COMPREPLY=( $(compgen -W "$(_mb_branches)" -- "$cur") ) ;;
+                esac ;;
+            scoremore)
+                case "$sub" in
+                    download)  COMPREPLY=( $(compgen -W "latest $(_mb_sm_versions)" -- "$cur") ) ;;
+                    history)   COMPREPLY=( $(compgen -W "list use clean" -- "$cur") ) ;;
+                    logs)      COMPREPLY=( $(compgen -W "show list tail dump" -- "$cur") ) ;;
+                esac ;;
+            pi)
+                case "$sub" in
+                    vnc) COMPREPLY=( $(compgen -W "status start stop enable disable" -- "$cur") ) ;;
+                esac ;;
+            logs)
+                case "$sub" in
+                    dump|tail)  COMPREPLY=( $(compgen -W "--date" -- "$cur") ) ;;
+                    clean)      COMPREPLY=( $(compgen -W "--keep" -- "$cur") ) ;;
+                esac ;;
+            system)
+                case "$sub" in
+                    preflight)  COMPREPLY=( $(compgen -W "--quick -q" -- "$cur") ) ;;
+                    backup)     COMPREPLY=( $(compgen -W "--include-appimage" -- "$cur") ) ;;
+                    tail-all)   COMPREPLY=( $(compgen -W "50 100 200" -- "$cur") ) ;;
+                    wait-for-network) COMPREPLY=( $(compgen -W "30 60 120" -- "$cur") ) ;;
+                    install)    COMPREPLY=( $(compgen -W "setup create-dir cli preflight" -- "$cur") ) ;;
+                    script)     COMPREPLY=( $(compgen -W "version update" -- "$cur") ) ;;
+                    serial)     COMPREPLY=( $(compgen -W "start stop status tail console" -- "$cur") ) ;;
+                    watchdog)   COMPREPLY=( $(compgen -W "run enable disable status" -- "$cur") ) ;;
+                esac ;;
+            deploy)
+                case "$sub" in
+                    schedule)   COMPREPLY=( $(compgen -W "02:00 02:30 03:00 03:30" -- "$cur") ) ;;
+                    --branch)
+                        COMPREPLY=( $(compgen -W "$(_mb_branches)" -- "$cur") ) ;;
+                esac ;;
+        esac
+        return 0
+    fi
+
+    # ── Fourth level ──────────────────────────────────────────────────────────
+    if [[ $cword -eq 4 ]]; then
+        case "$cmd" in
+            logs)
+                # logs tail N --date  or  logs dump --date  →  suggest dates
+                [[ "$sub" == "tail" || "$sub" == "dump" ]] && \
+                    COMPREPLY=( $(compgen -W "$(_mb_log_dates)" -- "$cur") ) ;;
+            scoremore)
+                # scoremore history use <version>
+                [[ "$sub" == "history" && "$subsub" == "use" ]] && \
+                    COMPREPLY=( $(compgen -W "$(_mb_sm_versions)" -- "$cur") ) ;;
+            branch)
+                # branch checkout <name> [--Sketch]
+                [[ "$sub" == "checkout" ]] && \
+                    COMPREPLY=( $(compgen -W "$(_mb_sketches)" -- "$cur") ) ;;
+        esac
+        return 0
     fi
 
     return 0

@@ -19,7 +19,7 @@ IFS=$'\n\t'
 # ------------------------------------------------
 
 readonly DEFAULT_GIT_BRANCH="main"
-readonly SCRIPT_VERSION="2.0.0"
+readonly SCRIPT_VERSION="3.0.0"
 readonly SCRIPT_REPO="https://github.com/glenpekarcsik/mini-bowling-script.git"
 readonly PROJECT_DIR="${MINI_BOWLING_DIR:-$HOME/Documents/Bowling/Arduino/mini-bowling}"
 readonly DEFAULT_PORT="/dev/ttyACM0"
@@ -276,7 +276,7 @@ require_git_repo() {
 # Ensure arduino-cli is available before commands that need it
 require_arduino_cli() {
     command -v arduino-cli >/dev/null 2>&1 || \
-        die "arduino-cli not found. Run: mini-bowling.sh install-cli"
+        die "arduino-cli not found. Run: mini-bowling.sh install cli"
 }
 
 find_arduino_port() {
@@ -657,8 +657,8 @@ list_branches() {
 
     echo
     echo "Usage:"
-    echo "  mini-bowling.sh upload --Master_Test --branch feature/new-sensor"
-    echo "  mini-bowling.sh switch-branch feature/new-sensor"
+    echo "  mini-bowling.sh sketch upload --Master_Test --branch feature/new-sensor"
+    echo "  mini-bowling.sh branch switch feature/new-sensor"
 }
 
 switch_branch() {
@@ -701,7 +701,7 @@ switch_branch() {
         echo "  (created local tracking branch from origin/$branch)"
     else
         $was_dirty && git stash pop --quiet 2>/dev/null || true
-        die "Cannot checkout '$branch' — run: mini-bowling.sh upload --list-branches"
+        die "Cannot checkout '$branch' — run: mini-bowling.sh branch list"
     fi
 
     echo "→ Pulling latest commits for $branch..."
@@ -714,7 +714,7 @@ switch_branch() {
     echo -e "${GREEN}✓ Switched to $branch:${NC} [$commit] $subject"
     echo
     echo -e "${YELLOW}Note:${NC} you are now permanently on branch '$branch'."
-    echo "  To switch back: mini-bowling.sh switch-branch $DEFAULT_GIT_BRANCH"
+    echo "  To switch back: mini-bowling.sh branch switch $DEFAULT_GIT_BRANCH"
 
     if $was_dirty; then
         echo
@@ -782,7 +782,7 @@ list_available_sketches() {
     echo "Found $count sketch folder(s)."
     echo
     echo "Usage:"
-    echo "  mini-bowling.sh upload --Everything"
+    echo "  mini-bowling.sh sketch upload --Everything"
     echo "  mini-bowling.sh upload --Master_Test"
     echo "  mini-bowling.sh upload --YourFolderName"
 }
@@ -820,7 +820,7 @@ cmd_compile_and_upload() {
 
     if [[ ! -d "$sketch_path" ]]; then
         echo -e "${YELLOW}Folder not found:${NC} $sketch_dir"
-        echo "Run:   mini-bowling.sh upload --list-sketches"
+        echo "Run:   mini-bowling.sh sketch list"
         die "Sketch folder missing: $sketch_dir"
     fi
 
@@ -1038,7 +1038,7 @@ show_console() {
     # Warn if serial-log is already using the port
     local pid_file="/tmp/mini-bowling-serial.pid"
     if [[ -f "$pid_file" ]] && kill -0 "$(cat "$pid_file")" 2>/dev/null; then
-        die "Serial logging is already running (pid $(cat "$pid_file")) and is using the port. Run 'mini-bowling.sh serial-log stop' first."
+        die "Serial logging is already running (pid $(cat "$pid_file")) and is using the port. Run 'mini-bowling.sh system serial stop' first."
     fi
 
     require_arduino_cli
@@ -1139,11 +1139,11 @@ repair() {
     if [[ -L "$SYMLINK_PATH" ]] && [[ ! -f "$SYMLINK_PATH" ]]; then
         echo -e "  ${RED}✗${NC}  ScoreMore symlink is broken: $SYMLINK_PATH"
         echo "     Target: $(readlink "$SYMLINK_PATH")"
-        echo "     Fix: run 'mini-bowling.sh download latest' to re-download"
+        echo "     Fix: run 'mini-bowling.sh scoremore download latest' to re-download"
         issues=$(( issues + 1 ))
     elif [[ ! -L "$SYMLINK_PATH" ]]; then
         echo -e "  ${YELLOW}!${NC}  No ScoreMore symlink at $SYMLINK_PATH"
-        echo "     Fix: run 'mini-bowling.sh download latest'"
+        echo "     Fix: run 'mini-bowling.sh scoremore download latest'"
         issues=$(( issues + 1 ))
     else
         echo -e "  ${GREEN}✓${NC}  ScoreMore symlink OK"
@@ -1421,7 +1421,7 @@ cmd_test_upload() {
     local sketch_path="${PROJECT_DIR}/${sketch_dir}"
     if [[ ! -d "$sketch_path" ]]; then
         echo -e "${YELLOW}Folder not found:${NC} $sketch_dir"
-        echo "Run:   mini-bowling.sh upload --list-sketches"
+        echo "Run:   mini-bowling.sh sketch list"
         die "Sketch folder missing: $sketch_dir"
     fi
 
@@ -1663,7 +1663,7 @@ script_version() {
         echo -e "${GREEN}${remote_version} (up to date)${NC}"
     else
         echo -e "${YELLOW}${remote_version} — update available!${NC}"
-        echo "  Run: mini-bowling.sh update-script"
+        echo "  Run: mini-bowling.sh script update"
     fi
 }
 
@@ -1789,7 +1789,7 @@ doctor() {
         if [[ -d "$dir" ]]; then
             printf "  ${GREEN}✓${NC}  %s\n" "$dir"
         else
-            printf "  ${YELLOW}-${NC}  %s  (not created yet — run: mini-bowling.sh create-dir)\n" "$dir"
+            printf "  ${YELLOW}-${NC}  %s  (not created yet — run: mini-bowling.sh system install create-dir)\n" "$dir"
         fi
     done
 
@@ -1841,7 +1841,7 @@ preflight() {
     if command -v arduino-cli >/dev/null 2>&1; then
         echo -e "  ${GREEN}✓${NC}  arduino-cli installed"
     else
-        echo -e "  ${RED}✗${NC}  arduino-cli not found — run: mini-bowling.sh install-cli"
+        echo -e "  ${RED}✗${NC}  arduino-cli not found — run: mini-bowling.sh install cli"
         all_ok=false
     fi
 
@@ -1908,7 +1908,7 @@ preflight() {
     elif [[ -L "$SYMLINK_PATH" ]]; then
         echo -e "  ${YELLOW}!${NC}  ScoreMore symlink is broken: $SYMLINK_PATH"
     else
-        echo -e "  ${YELLOW}!${NC}  No ScoreMore symlink at $SYMLINK_PATH — run: mini-bowling.sh download <version>"
+        echo -e "  ${YELLOW}!${NC}  No ScoreMore symlink at $SYMLINK_PATH — run: mini-bowling.sh scoremore download <version>"
     fi
 
     # 8. Remote git update check (skipped in quick mode)
@@ -1943,10 +1943,10 @@ preflight() {
             if [[ "$sm_latest" == "$sm_installed" ]]; then
                 echo -e "  ${GREEN}✓${NC}  ScoreMore up to date ($sm_installed)"
             else
-                echo -e "  ${YELLOW}!${NC}  ScoreMore update available: $sm_installed → $sm_latest — run: mini-bowling.sh download $sm_latest"
+                echo -e "  ${YELLOW}!${NC}  ScoreMore update available: $sm_installed → $sm_latest — run: mini-bowling.sh scoremore download $sm_latest"
             fi
         elif [[ -n "$sm_latest" ]]; then
-            echo -e "  ${YELLOW}!${NC}  ScoreMore latest: $sm_latest — run: mini-bowling.sh download $sm_latest"
+            echo -e "  ${YELLOW}!${NC}  ScoreMore latest: $sm_latest — run: mini-bowling.sh scoremore download $sm_latest"
         fi
     fi
 
@@ -2026,7 +2026,7 @@ install_setup() {
             download_scoremore_version "$(
                 curl --silent --fail --max-time 10 "https://www.scoremorebowling.com/download" | \
                 grep -oP "ScoreMore-\K[0-9]+\.[0-9]+(\.[0-9]+)?(?=-${ARCH}\.${EXTENSION})" | head -1
-            )" || echo -e "  ${YELLOW}Warning: download failed — run 'mini-bowling.sh download latest' later${NC}"
+            )" || echo -e "  ${YELLOW}Warning: download failed — run 'mini-bowling.sh scoremore download latest' later${NC}"
         fi
     else
         echo "  Downloading latest ScoreMore..."
@@ -2036,9 +2036,9 @@ install_setup() {
             grep -oP "ScoreMore-\K[0-9]+\.[0-9]+(\.[0-9]+)?(?=-${ARCH}\.${EXTENSION})" | head -1 || true)
         if [[ -n "$latest_ver" ]]; then
             download_scoremore_version "$latest_ver" || \
-                echo -e "  ${YELLOW}Warning: download failed — run 'mini-bowling.sh download latest' later${NC}"
+                echo -e "  ${YELLOW}Warning: download failed — run 'mini-bowling.sh scoremore download latest' later${NC}"
         else
-            echo -e "  ${YELLOW}Could not determine latest version — run 'mini-bowling.sh download latest' manually.${NC}"
+            echo -e "  ${YELLOW}Could not determine latest version — run 'mini-bowling.sh scoremore download latest' manually.${NC}"
         fi
     fi
     echo
@@ -2060,7 +2060,7 @@ install_setup() {
     if [[ "${wd_answer,,}" != "n" ]]; then
         setup_watchdog enable
     else
-        echo "  Skipped — run 'mini-bowling.sh setup-watchdog enable' at any time."
+        echo "  Skipped — run 'mini-bowling.sh system watchdog enable' at any time."
     fi
     echo
 
@@ -2071,7 +2071,7 @@ install_setup() {
     if [[ -n "$sched_time" ]]; then
         schedule_deploy "$sched_time"
     else
-        echo "  Skipped — run 'mini-bowling.sh schedule-deploy HH:MM' at any time."
+        echo "  Skipped — run 'mini-bowling.sh deploy schedule HH:MM' at any time."
     fi
 
     echo
@@ -2163,7 +2163,7 @@ schedule_deploy() {
     echo -e "${GREEN}✓ Scheduled deploy set:${NC} every day at ${time}"
     echo "  Cron entry: $cron_job"
     echo
-    echo "Run 'mini-bowling.sh unschedule-deploy' to remove."
+    echo "Run 'mini-bowling.sh deploy unschedule' to remove."
 }
 
 unschedule_deploy() {
@@ -2297,7 +2297,7 @@ check_scoremore_update() {
     if [[ -z "$installed" ]]; then
         echo "Installed        : none"
         echo
-        echo "Run: mini-bowling.sh download $latest"
+        echo "Run: mini-bowling.sh scoremore download $latest"
         return 0
     fi
 
@@ -2308,7 +2308,7 @@ check_scoremore_update() {
     else
         echo -e "${YELLOW}→ Update available:${NC} $installed → $latest"
         echo
-        echo "Run: mini-bowling.sh download $latest"
+        echo "Run: mini-bowling.sh scoremore download $latest"
     fi
 }
 
@@ -2376,8 +2376,8 @@ scoremore_history() {
                 echo -e "$active_marker"
             done
             echo
-            echo "Run 'mini-bowling.sh scoremore-history use <version>' to switch versions."
-            echo "Run 'mini-bowling.sh scoremore-history clean' to remove all but the active version."
+            echo "Run 'mini-bowling.sh scoremore history use <version>' to switch versions."
+            echo "Run 'mini-bowling.sh scoremore history clean' to remove all but the active version."
             ;;
 
         use)
@@ -2445,13 +2445,13 @@ rollback_scoremore() {
     if [[ -z "$previous" ]]; then
         local total=${#files[@]}
         if [[ $total -eq 0 ]]; then
-            die "No ScoreMore AppImages found in $SCOREMORE_DIR — run: mini-bowling.sh download latest"
+            die "No ScoreMore AppImages found in $SCOREMORE_DIR — run: mini-bowling.sh scoremore download latest"
         elif [[ $total -eq 1 ]]; then
             die "Only one ScoreMore version is installed ($(basename "${files[0]}")) — nothing to roll back to.
-  Download an older version first: mini-bowling.sh download <version>
-  Or list available versions: mini-bowling.sh scoremore-history list"
+  Download an older version first: mini-bowling.sh scoremore download <version>
+  Or list available versions: mini-bowling.sh scoremore history list"
         else
-            die "Could not determine previous version — run: mini-bowling.sh scoremore-history list"
+            die "Could not determine previous version — run: mini-bowling.sh scoremore history list"
         fi
     fi
 
@@ -3024,7 +3024,7 @@ vnc_setup() {
 
     # No subcommand: show usage without requiring VNC to be installed
     if [[ -z "$subcmd" ]]; then
-        echo "Usage: mini-bowling.sh vnc-setup <subcommand>"
+        echo "Usage: mini-bowling.sh pi vnc <subcommand>"
         echo
         echo "Subcommands:"
         echo "  start             Start VNC now"
@@ -3032,7 +3032,7 @@ vnc_setup() {
         echo "  enable-autostart  Enable VNC to start automatically on boot"
         echo "  disable-autostart Disable VNC autostart"
         echo
-        echo "Check current VNC state with: mini-bowling.sh vnc-status"
+        echo "Check current VNC state with: mini-bowling.sh pi vnc status"
         return 0
     fi
 
@@ -3142,7 +3142,7 @@ vnc_setup() {
                 sudo systemctl enable "$_vnc_service" || die "Failed to enable $_vnc_service"
                 echo -e "${GREEN}✓ VNC autostart enabled${NC}  (systemd: $_vnc_service)"
                 echo    "  VNC will start automatically on next boot."
-                echo    "  To start now:  mini-bowling.sh vnc-setup start"
+                echo    "  To start now:  mini-bowling.sh pi vnc start"
             else
                 # No systemd service — try raspi-config if available
                 if command -v raspi-config >/dev/null 2>&1; then
@@ -3272,7 +3272,7 @@ with_git_branch() {
     else
         trap - INT TERM EXIT
         _with_git_branch_restore
-        die "Cannot checkout '$branch' — does it exist on remote? Run: mini-bowling.sh upload --list-branches"
+        die "Cannot checkout '$branch' — does it exist on remote? Run: mini-bowling.sh branch list"
     fi
 
     # Pull latest commits for this branch from remote
@@ -3313,175 +3313,167 @@ with_git_branch() {
 main() {
     [[ $# -eq 0 ]] && {
         cat <<'EOF'
-Usage: mini-bowling.sh <command> [options]
+Usage: mini-bowling.sh <command> [subcommand] [options]
 
-Available commands:
-  status                Show project / port / app status
-  update                git pull latest main branch
-  upload [--FolderName | --list-sketches | --list-branches] [--branch <n>] [--no-kill]
-                        Compile + upload sketch → restart ScoreMore (default: Everything)
-  switch-branch <name>  Switch the project repo to a branch permanently (fetches + pulls latest)
-  deploy [--no-kill] [--branch <n>] [--dry-run]
-                        Pull → upload Everything → restart ScoreMore (default branch: main)
-  download <version>    Download + restart ScoreMore (e.g. 1.8.0 or 'latest')
-  start-scoremore       Start ScoreMore AppImage
-  setup-autostart       Create scoremore.desktop in ~/.config/autostart
-  remove-autostart      Remove scoremore.desktop from ~/.config/autostart
-  schedule-deploy HH:MM Schedule deploy to run daily at the specified time
-  unschedule-deploy     Remove the scheduled daily deploy
-  console               Arduino serial monitor (Ctrl+C to exit)
-  list                  arduino-cli board list
-  logs [list|follow|dump [--date YYYY-MM-DD]|tail [N] [--date YYYY-MM-DD]|clean [--keep N]]
-                        List log files, view today's log, or delete all logs (default: list)
-  update-script         Pull latest version of mini-bowling.sh from GitHub
-  create-dir            Create required directories
-  install-cli           Install arduino-cli if missing
-  install               Guided first-time setup wizard
-  preflight             Check all conditions before deploying (--quick to skip network checks)
-  doctor                Check all required dependencies are installed
-  version               Show script version, path, and shell info
-  backup [--include-appimage]
-                        Backup Arduino sketches and ScoreMore config
-  wait-for-network [N]  Wait up to N seconds for network (default: 30)
-  rollback [N]          Roll back N git commits and re-upload (default: 1)
-  check-update          Check if remote has new commits without pulling
-  scoremore-history [list|use <ver>|clean]
-                        Manage downloaded ScoreMore versions
-  rollback-scoremore    Switch to the previous downloaded ScoreMore version
-  check-scoremore-update
-                        Check scoremorebowling.com for a newer ScoreMore version
-  serial-log [start|stop|status|tail]
-                        Capture Arduino serial output to a log file
-  watchdog              Check if ScoreMore is running and restart if not
-  setup-watchdog [enable|disable|status]
-                        Manage the ScoreMore watchdog cron job (every 5 min)
-  disk-cleanup          Remove old AppImages, build caches, and old logs
-  pi-update             Run apt update + upgrade
-  pi-reboot             Reboot the Raspberry Pi (5 second countdown)
-  pi-shutdown           Shut down the Raspberry Pi (5 second countdown)
-  wifi-status           Show network interface, IP, SSID, and internet reachability
-  vnc-status            Check VNC server installation, configuration, and running state
-  vnc-setup <sub>       Start/stop VNC and enable/disable autostart on boot
-                          start, stop, enable-autostart, disable-autostart
-  restart               Kill ScoreMore and start it again in one command
-  repair                Check and fix common broken states automatically
-  ports                 List all serial devices with USB info and status
-  info                  Dense single-screen summary: hardware + app state + Pi health
-  status [--watch [N]]  Show status (--watch refreshes every N seconds, default 5)
-  tail-all [N]          Interleave command log and Arduino serial log (live tail)
-  test-upload [--Sketch]
-                        Compile sketch without uploading to verify it builds
-  scoremore-logs [show|tail|dump]
-                        Find and view ScoreMore's own application logs
+  status                Show full system status
+  status --watch [N]    Auto-refresh every N seconds (default 5)
+  info                  Dense single-screen summary (hardware + app + Pi)
+  version               Show version and check GitHub for updates
+
+  deploy                Pull latest → upload Everything → restart ScoreMore
+  deploy --dry-run      Preview deploy without making changes
+  deploy --no-kill      Deploy without restarting ScoreMore
+  deploy --branch <n>   Deploy from a specific branch
+  deploy schedule HH:MM Schedule daily deploy at given time
+  deploy unschedule     Remove scheduled deploy
+
+  code                  Arduino code management
+    code sketch upload [--Name]    Compile + upload sketch (default: Everything)
+    code sketch upload --no-kill   Upload without restarting ScoreMore
+    code sketch upload --branch <n>  Upload from a specific branch
+    code sketch list               List available sketch folders
+    code sketch test [--Name]      Compile only — no upload (default: Everything)
+    code sketch rollback [N]       Roll back N git commits and re-upload (default: 1)
+    code branch list               List local + remote branches with commit info
+    code branch checkout <n>       Temporarily checkout, compile, return to original
+    code branch switch <n>         Permanently switch to branch (fetches + pulls)
+    code branch update             Pull latest commits for current branch
+    code branch check              Check if remote has new commits without pulling
+
+  scoremore             ScoreMore application management
+    scoremore start                Launch ScoreMore
+    scoremore stop                 Kill ScoreMore
+    scoremore restart              Kill and relaunch ScoreMore (quick fix for freezes)
+    scoremore download <ver>       Download version (e.g. 1.8.0 or 'latest')
+    scoremore version              Show active version info
+    scoremore check-update         Check scoremorebowling.com for newer version
+    scoremore history              List downloaded versions
+    scoremore history use <ver>    Switch to a specific downloaded version
+    scoremore history clean        Remove all but active version
+    scoremore rollback             Switch to previous downloaded version
+    scoremore autostart            Enable ScoreMore autostart on login
+    scoremore remove-autostart     Disable ScoreMore autostart
+    scoremore logs                 List ScoreMore application logs
+    scoremore logs tail            Live tail ScoreMore logs
+    scoremore logs dump            Full output of latest ScoreMore log
+
+  pi                    Raspberry Pi management
+    pi status                      CPU temp, memory, disk, uptime
+    pi update                      Run apt update + upgrade
+    pi reboot                      Reboot (5-second countdown, checks sudo first)
+    pi shutdown                    Shut down (5-second countdown, checks sudo first)
+    pi wifi                        Interface, IP, SSID, signal, internet reachability
+    pi vnc status                  VNC installation, service state, connect address
+    pi vnc start                   Start VNC service
+    pi vnc stop                    Stop VNC service
+    pi vnc enable                  Enable VNC autostart on boot
+    pi vnc disable                 Disable VNC autostart on boot
+
+  logs                  Log file management
+    logs                           List log files with sizes
+    logs follow                    Live tail today's log
+    logs dump                      Full output of today's log
+    logs dump --date YYYY-MM-DD    Full output of a specific day
+    logs tail [N]                  Last N lines of today's log (default: 50)
+    logs tail [N] --date DATE      Last N lines of a specific day
+    logs clean                     Delete all log files (confirms first)
+    logs clean --keep N            Keep last N days, delete older
+
+  install               First-time setup and installation
+    install setup                  Guided first-time setup wizard
+    install create-dir             Create required directories
+    install cli                    Install arduino-cli
+    install preflight              Run pre-install checks
+
+  script                Script management
+    script version                 Show version and check GitHub for updates
+    script update                  Update script from GitHub (syntax-checked)
+
+  system                System administration
+    system doctor                  Check dependencies, directories, dialout group
+    system preflight               9 pre-deploy checks (--quick skips network)
+    system backup                  Backup sketches + config (--include-appimage)
+    system repair                  Fix common broken states automatically
+    system cleanup                 Remove old AppImages, build caches, old logs
+    system ports                   List serial devices with USB info
+    system tail-all [N]            Interleave command + Arduino serial logs (live)
+    system wait-for-network [N]    Wait up to N seconds for network (default: 30)
+    system serial start|stop|status|tail|console
+    system watchdog run|enable|disable|status
 
 Examples:
 
-  ── Status & info ──────────────────────────────────────────────────
+  ── Daily ──────────────────────────────────────────────────────────
   mini-bowling.sh status
   mini-bowling.sh status --watch
-  mini-bowling.sh status --watch 10
   mini-bowling.sh info
-  mini-bowling.sh version
-  mini-bowling.sh doctor
-  mini-bowling.sh preflight
-  mini-bowling.sh preflight --quick
-  mini-bowling.sh ports
-
-  ── Deploy ─────────────────────────────────────────────────────────
   mini-bowling.sh deploy
   mini-bowling.sh deploy --dry-run
-  mini-bowling.sh deploy --no-kill
-  mini-bowling.sh deploy --branch testing
+  mini-bowling.sh deploy schedule 02:30
+  mini-bowling.sh deploy unschedule
 
-  ── Upload (compile + upload without full deploy cycle) ────────────
-  mini-bowling.sh upload --Everything
-  mini-bowling.sh upload --Master_Test
-  mini-bowling.sh upload --Master_Test --branch feature/new-sensor
-  mini-bowling.sh upload --Master_Test --no-kill
-  mini-bowling.sh upload --list-sketches
-  mini-bowling.sh upload --list-branches
-  mini-bowling.sh test-upload
-  mini-bowling.sh test-upload --Master_Test
-
-  ── Branch management ──────────────────────────────────────────────
-  mini-bowling.sh switch-branch feature/new-sensor
-  mini-bowling.sh switch-branch main
-  mini-bowling.sh update
-  mini-bowling.sh check-update
-  mini-bowling.sh rollback
-  mini-bowling.sh rollback 2
+  ── Code (sketch + branch) ─────────────────────────────────────────
+  mini-bowling.sh code sketch upload --Everything
+  mini-bowling.sh code sketch upload --Master_Test
+  mini-bowling.sh code sketch upload --Master_Test --branch feature/new-sensor
+  mini-bowling.sh code sketch list
+  mini-bowling.sh code sketch test --Everything
+  mini-bowling.sh code sketch rollback
+  mini-bowling.sh code branch list
+  mini-bowling.sh code branch switch feature/new-sensor
+  mini-bowling.sh code branch checkout feature/new-sensor --Master_Test
+  mini-bowling.sh code branch update
+  mini-bowling.sh code branch check
 
   ── ScoreMore ──────────────────────────────────────────────────────
-  mini-bowling.sh restart
-  mini-bowling.sh start-scoremore
-  mini-bowling.sh download latest
-  mini-bowling.sh download 1.8.0
-  mini-bowling.sh check-scoremore-update
-  mini-bowling.sh scoremore-version
-  mini-bowling.sh scoremore-history
-  mini-bowling.sh scoremore-history use 1.7.0
-  mini-bowling.sh scoremore-history clean
-  mini-bowling.sh rollback-scoremore
-  mini-bowling.sh scoremore-logs
-  mini-bowling.sh scoremore-logs tail
-  mini-bowling.sh scoremore-logs dump
-  mini-bowling.sh setup-autostart
-  mini-bowling.sh remove-autostart
+  mini-bowling.sh scoremore restart
+  mini-bowling.sh scoremore download latest
+  mini-bowling.sh scoremore download 1.8.0
+  mini-bowling.sh scoremore check-update
+  mini-bowling.sh scoremore version
+  mini-bowling.sh scoremore history
+  mini-bowling.sh scoremore history use 1.7.0
+  mini-bowling.sh scoremore rollback
+  mini-bowling.sh scoremore autostart
+  mini-bowling.sh scoremore logs tail
 
-  ── Serial & console ───────────────────────────────────────────────
-  mini-bowling.sh console
-  mini-bowling.sh serial-log start
-  mini-bowling.sh serial-log stop
-  mini-bowling.sh serial-log status
-  mini-bowling.sh serial-log tail
-
-  ── Logs ───────────────────────────────────────────────────────────
-  mini-bowling.sh logs
+  ── Serial & monitoring ────────────────────────────────────────────
+  mini-bowling.sh system serial start
+  mini-bowling.sh system serial stop
+  mini-bowling.sh system serial tail
+  mini-bowling.sh system serial console
   mini-bowling.sh logs follow
-  mini-bowling.sh logs dump
-  mini-bowling.sh logs dump --date 2026-03-15
-  mini-bowling.sh logs tail
-  mini-bowling.sh logs tail 100
   mini-bowling.sh logs tail 100 --date 2026-03-15
-  mini-bowling.sh logs clean
-  mini-bowling.sh logs clean --keep 7
-  mini-bowling.sh tail-all
-  mini-bowling.sh tail-all 100
+  mini-bowling.sh system tail-all
 
-  ── Watchdog & scheduling ──────────────────────────────────────────
-  mini-bowling.sh watchdog
-  mini-bowling.sh setup-watchdog enable
-  mini-bowling.sh setup-watchdog disable
-  mini-bowling.sh setup-watchdog status
-  mini-bowling.sh schedule-deploy 02:30
-  mini-bowling.sh unschedule-deploy
+  ── Watchdog ───────────────────────────────────────────────────────
+  mini-bowling.sh system watchdog run
+  mini-bowling.sh system watchdog enable
+  mini-bowling.sh system watchdog disable
 
-  ── Maintenance ────────────────────────────────────────────────────
-  mini-bowling.sh repair
-  mini-bowling.sh backup
-  mini-bowling.sh backup --include-appimage
-  mini-bowling.sh disk-cleanup
-  mini-bowling.sh update-script
-  mini-bowling.sh list
+  ── System ─────────────────────────────────────────────────────────
+  mini-bowling.sh system doctor
+  mini-bowling.sh system preflight
+  mini-bowling.sh system preflight --quick
+  mini-bowling.sh system repair
+  mini-bowling.sh system backup
+  mini-bowling.sh system backup --include-appimage
+  mini-bowling.sh system cleanup
+  mini-bowling.sh system ports
 
-  ── Raspberry Pi ───────────────────────────────────────────────────
-  mini-bowling.sh pi-status
-  mini-bowling.sh pi-update
-  mini-bowling.sh pi-reboot
-  mini-bowling.sh pi-shutdown
-  mini-bowling.sh wifi-status
-  mini-bowling.sh vnc-status
-  mini-bowling.sh vnc-setup start
-  mini-bowling.sh vnc-setup stop
-  mini-bowling.sh vnc-setup enable-autostart
-  mini-bowling.sh vnc-setup disable-autostart
-
-  ── Setup ──────────────────────────────────────────────────────────
-  mini-bowling.sh install
-  mini-bowling.sh create-dir
-  mini-bowling.sh install-cli
-  mini-bowling.sh wait-for-network
-  mini-bowling.sh wait-for-network 60
+  ── Install & script ───────────────────────────────────────────────
+  mini-bowling.sh install setup
+  mini-bowling.sh install create-dir
+  mini-bowling.sh install cli
+  mini-bowling.sh script version
+  mini-bowling.sh script update
+  mini-bowling.sh pi status
+  mini-bowling.sh pi update
+  mini-bowling.sh pi reboot
+  mini-bowling.sh pi wifi
+  mini-bowling.sh pi vnc status
+  mini-bowling.sh pi vnc start
+  mini-bowling.sh pi vnc enable
 
 EOF
         exit 0
@@ -3492,19 +3484,49 @@ EOF
     # Item 8: silently create required directories on first run if missing
     mkdir -p "$PROJECT_DIR" "$SCOREMORE_DIR" "$LOG_DIR" 2>/dev/null || true
 
-    # Skip logging for informational commands that don't do anything
-    if [[ "$cmd" != "logs" && "$cmd" != "status" && "$cmd" != "list" \
-       && "$cmd" != "pi-status" && "$cmd" != "wifi-status" \
-       && "$cmd" != "vnc-status" \
-       && "$cmd" != "doctor" && "$cmd" != "preflight" \
-       && "$cmd" != "scoremore-version" && "$cmd" != "wait-for-network" \
-       && "$cmd" != "check-update" && "$cmd" != "scoremore-history" \
-       && "$cmd" != "check-scoremore-update" \
-       && "$cmd" != "serial-log" && "$cmd" != "setup-watchdog" \
-       && "$cmd" != "watchdog" && "$cmd" != "version" \
-       && "$cmd" != "ports" && "$cmd" != "info" \
-       && "$cmd" != "tail-all" && "$cmd" != "scoremore-logs" \
-       && "$cmd" != "list-branches" ]]; then
+    # Skip logging for purely read-only commands that don't change any state.
+    # Everything else (deploy, code, scoremore download/start/stop, pi reboot, etc.) IS logged.
+    local _log=true
+    case "$cmd" in
+        status|info|version|logs)
+            _log=false ;;
+        system)
+            # system doctor/preflight/ports/tail-all/wait-for-network are read-only
+            # system backup/repair/cleanup/install/script DO modify state — log those
+            case "${2:-}" in
+                doctor|preflight|ports|tail-all|wait-for-network|watchdog)
+                    _log=false ;;
+            esac ;;
+        scoremore)
+            # scoremore version/check-update/history/logs are read-only
+            case "${2:-}" in
+                version|check-update|history|logs)
+                    _log=false ;;
+            esac ;;
+        pi)
+            # pi status/wifi are read-only; pi vnc status is read-only
+            case "${2:-}" in
+                status|wifi)
+                    _log=false ;;
+                vnc)
+                    [[ "${3:-}" == "status" ]] && _log=false ;;
+            esac ;;
+        code)
+            # code branch list/check are read-only; code sketch list is read-only
+            case "${2:-}" in
+                branch)
+                    case "${3:-}" in
+                        list|check) _log=false ;;
+                    esac ;;
+                sketch)
+                    [[ "${3:-}" == "list" ]] && _log=false ;;
+            esac ;;
+        script)
+            # script version is read-only
+            [[ "${2:-}" == "version" ]] && _log=false ;;
+    esac
+
+    if $_log; then
         setup_logging "$cmd" "$@"
         prune_logs
     fi
@@ -3513,7 +3535,7 @@ EOF
 
     # Commands using sudo need a real TTY — run them directly, log header only
     local bypass_tee=false
-    if [[ "$cmd" == "pi-update" || "$cmd" == "pi-reboot" || "$cmd" == "pi-shutdown" ]]; then
+    if [[ "$cmd" == "pi" ]]; then
         bypass_tee=true
     fi
 
@@ -3533,108 +3555,39 @@ _dispatch() {
     local cmd="$1"
     shift
 
-    case "$cmd" in
-        download)
-            local dl_ver="${1?Missing version number — use a version like 1.8.0 or 'latest'}"
-            if [[ "$dl_ver" == "latest" ]]; then
-                echo "Resolving latest ScoreMore version..."
-                local page
-                page=$(curl --silent --fail --max-time 10 \
-                    "https://www.scoremorebowling.com/download") || \
-                    die "Could not reach scoremorebowling.com — is the network available?"
-                dl_ver=$(echo "$page" | grep -oP "ScoreMore-\K[0-9]+\.[0-9]+(\.[0-9]+)?(?=-${ARCH}\.${EXTENSION})" | head -1 || true)
-                if [[ -z "$dl_ver" ]]; then
-                    dl_ver=$(echo "$page" | grep -oP "ScoreMore \K[0-9]+\.[0-9]+(\.[0-9]+)?(?=,? Latest)" | head -1 || true)
-                fi
-                [[ -n "$dl_ver" ]] || die "Could not determine latest version from scoremorebowling.com"
-                echo "Latest version: $dl_ver"
-            fi
-            download_scoremore_version "$dl_ver"
-            ;;
-        start-scoremore)
+    # ── Helper: resolve download version ─────────────────────────────────────
+    _resolve_dl_version() {
+        local ver="$1"
+        if [[ "$ver" == "latest" ]]; then
+            echo "Resolving latest ScoreMore version..." >&2
+            local page
+            page=$(curl --silent --fail --max-time 10 \
+                "https://www.scoremorebowling.com/download") || \
+                die "Could not reach scoremorebowling.com — is the network available?"
+            ver=$(echo "$page" | grep -oP "ScoreMore-\K[0-9]+\.[0-9]+(\.[0-9]+)?(?=-${ARCH}\.${EXTENSION})" | head -1 || true)
+            [[ -z "$ver" ]] && ver=$(echo "$page" | grep -oP "ScoreMore \K[0-9]+\.[0-9]+(\.[0-9]+)?(?=,? Latest)" | head -1 || true)
+            [[ -n "$ver" ]] || die "Could not determine latest version from scoremorebowling.com"
+            echo "Latest version: $ver" >&2
+        fi
+        echo "$ver"
+    }
+
+    # ── Helper: upload dispatch shared logic ─────────────────────────────────
+    _do_upload() {
+        local sketch="$1" branch="$2" kill_app="$3"
+        with_git_branch "$branch" cmd_compile_and_upload "$sketch" "$kill_app"
+        if [[ "$sketch" == "Everything" ]]; then
             start_scoremore
-            ;;
-        setup-autostart)
-            setup_autostart
-            ;;
-        remove-autostart)
-            remove_autostart
-            ;;
-        schedule-deploy)
-            schedule_deploy "${1:-}"
-            ;;
-        unschedule-deploy)
-            unschedule_deploy
-            ;;
-        update)
-            cmd_update
-            ;;
-        upload)
-            local branch=""
-            local sketch="Everything"
-            local kill_app="true"
+        else
+            local current_branch
+            current_branch=$(git -C "$PROJECT_DIR" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "unknown")
+            echo "ScoreMore left as-is (sketch is '$sketch' from branch '$current_branch', not 'Everything')"
+        fi
+    }
 
-            while [[ $# -gt 0 ]]; do
-                case "$1" in
-                    --list-sketches)
-                        list_available_sketches
-                        exit 0
-                        ;;
-                    --list-branches)
-                        list_branches
-                        exit 0
-                        ;;
-                    --no-kill|-k)
-                        kill_app="false"
-                        shift
-                        ;;
-                    --branch=*)
-                        branch="${1#--branch=}"
-                        shift
-                        ;;
-                    --branch)
-                        shift
-                        branch="${1?Missing branch name after --branch}"
-                        shift
-                        ;;
-                    --*)
-                        sketch="${1#--}"
-                        shift
-                        ;;
-                    *)
-                        die "Unexpected argument for upload: $1"
-                        ;;
-                esac
-            done
+    case "$cmd" in
 
-            if [[ -z "$branch" ]]; then
-                branch="$DEFAULT_GIT_BRANCH"
-                echo -e "${GREEN}Using default branch:${NC} $branch"
-            else
-                echo -e "${YELLOW}Using specified branch:${NC} $branch"
-            fi
-
-            # Don't touch ScoreMore at all for non-Everything sketches —
-            # it's a dev/test upload and the app should be left as-is.
-            if [[ "$sketch" != "Everything" ]]; then
-                kill_app="false"
-            fi
-
-            with_git_branch "$branch" cmd_compile_and_upload "$sketch" "$kill_app"
-            if [[ "$sketch" == "Everything" ]]; then
-                start_scoremore
-            else
-                local current_branch
-                current_branch=$(git -C "$PROJECT_DIR" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "unknown")
-                echo "ScoreMore left as-is (sketch is '$sketch' from branch '$current_branch', not 'Everything')"
-            fi
-            ;;
-        deploy)
-            cmd_deploy "$@"
-            ;;
-        console)
-            show_console
-            ;;
+        # ── status / info (top-level shortcuts) ──────────────────────────────
         status)
             if [[ "${1:-}" == "--watch" || "${1:-}" == "-w" ]]; then
                 watch_status "${2:-5}"
@@ -3642,118 +3595,260 @@ _dispatch() {
                 print_status
             fi
             ;;
-        list)
-            board_list
-            ;;
-        rollback)
-            cmd_rollback "${1:-1}"
-            ;;
-        check-update)
-            check_update
-            ;;
-        scoremore-history)
-            scoremore_history "$@"
-            ;;
-        rollback-scoremore)
-            rollback_scoremore
-            ;;
-        serial-log)
-            serial_log "${1:-start}" "${@:2}"
-            ;;
-        watchdog)
-            watchdog
-            ;;
-        setup-watchdog)
-            setup_watchdog "${1:-enable}"
-            ;;
-        disk-cleanup)
-            disk_cleanup
-            ;;
-        create-dir|createdir)
-            ensure_directories
-            ;;
-        install-cli)
-            install_cli
-            ;;
-        install)
-            install_setup
-            ;;
-        preflight)
-            preflight "$@"
-            ;;
-        doctor)
-            doctor
-            ;;
-        version)
-            script_version
-            ;;
-        check-scoremore-update)
-            check_scoremore_update
-            ;;
-        scoremore-version)
-            scoremore_version
-            ;;
-        backup)
-            backup_config
-            ;;
-        wait-for-network)
-            wait_for_network "${1:-30}"
-            ;;
-        pi-status)
-            pi_status
-            ;;
-        pi-update)
-            pi_update
-            ;;
-        pi-reboot)
-            pi_reboot
-            ;;
-        pi-shutdown)
-            pi_shutdown
-            ;;
-        wifi-status)
-            wifi_status
-            ;;
-        vnc-status)
-            vnc_status
-            ;;
-        vnc-setup)
-            vnc_setup "$@"
-            ;;
-        logs)
-            show_logs "$@"
-            ;;
-        update-script)
-            update_script
-            ;;
-        restart)
-            restart_scoremore
-            ;;
-        repair)
-            repair
-            ;;
-        ports)
-            show_ports
-            ;;
+
         info)
             show_info
             ;;
-        tail-all)
-            tail_all "$@"
+
+        # ── version (top-level shortcut) ──────────────────────────────────────
+        version)
+            script_version
             ;;
-        test-upload)
-            local sketch="${1:-Everything}"
-            [[ "${1:-}" == --* ]] && sketch="${1#--}"
-            cmd_test_upload "$sketch"
+
+        # ── deploy ────────────────────────────────────────────────────────────
+        deploy)
+            local subcmd="${1:-run}"
+            # If first arg looks like a flag, treat as bare deploy
+            [[ "${1:-}" == --* || -z "${1:-}" ]] && subcmd="run"
+            [[ "$subcmd" != "run" && "$subcmd" != "schedule" && "$subcmd" != "unschedule" ]] && subcmd="run"
+            case "$subcmd" in
+                run)
+                    cmd_deploy "$@"
+                    ;;
+                schedule)
+                    shift
+                    schedule_deploy "${1?Missing time — usage: deploy schedule HH:MM}"
+                    ;;
+                unschedule)
+                    unschedule_deploy
+                    ;;
+            esac
             ;;
-        scoremore-logs)
-            scoremore_logs "${1:-show}"
+
+        # ── sketch ────────────────────────────────────────────────────────────
+        # ── code (sketch + branch) ────────────────────────────────────────────
+        code)
+            local codecmd="${1:-help}"; shift 2>/dev/null || true
+            case "$codecmd" in
+
+                # code sketch ─────────────────────────────────────────────────
+                sketch)
+                    local subcmd="${1:-upload}"; shift 2>/dev/null || true
+                    case "$subcmd" in
+                        upload)
+                            local branch="$DEFAULT_GIT_BRANCH" sketch="Everything" kill_app="true"
+                            while [[ $# -gt 0 ]]; do
+                                case "$1" in
+                                    --no-kill|-k)  kill_app="false"; shift ;;
+                                    --branch=*)    branch="${1#--branch=}"; shift ;;
+                                    --branch)      shift; branch="${1?}"; shift ;;
+                                    --*)           sketch="${1#--}"; shift ;;
+                                    *)             die "Unexpected argument: $1" ;;
+                                esac
+                            done
+                            [[ "$sketch" != "Everything" ]] && kill_app="false"
+                            _do_upload "$sketch" "$branch" "$kill_app"
+                            ;;
+                        list)
+                            list_available_sketches
+                            ;;
+                        test)
+                            local sketch="Everything"
+                            [[ "${1:-}" == --* ]] && sketch="${1#--}"
+                            cmd_test_upload "$sketch"
+                            ;;
+                        rollback)
+                            cmd_rollback "${1:-1}"
+                            ;;
+                        *)
+                            die "Unknown code sketch subcommand: '$subcmd' — use: upload, list, test, rollback"
+                            ;;
+                    esac
+                    ;;
+
+                # code branch ─────────────────────────────────────────────────
+                branch)
+                    local subcmd="${1:-list}"; shift 2>/dev/null || true
+                    case "$subcmd" in
+                        list)
+                            list_branches
+                            ;;
+                        checkout)
+                            local br="${1?Missing branch name — usage: code branch checkout <n>}"
+                            local sketch="${2:-Everything}"
+                            [[ "$sketch" == --* ]] && sketch="${sketch#--}"
+                            local kill_app="true"
+                            [[ "$sketch" != "Everything" ]] && kill_app="false"
+                            with_git_branch "$br" cmd_compile_and_upload "$sketch" "$kill_app"
+                            [[ "$sketch" == "Everything" ]] && start_scoremore || true
+                            ;;
+                        switch)
+                            switch_branch "${1?Missing branch name — usage: code branch switch <n>}"
+                            ;;
+                        update)
+                            cmd_update
+                            ;;
+                        check)
+                            check_update
+                            ;;
+                        *)
+                            die "Unknown code branch subcommand: '$subcmd' — use: list, checkout, switch, update, check"
+                            ;;
+                    esac
+                    ;;
+
+                *)
+                    echo "code subcommands:"
+                    echo "  code sketch upload [--Name] [--branch <n>] [--no-kill]"
+                    echo "  code sketch list"
+                    echo "  code sketch test [--Name]"
+                    echo "  code sketch rollback [N]"
+                    echo "  code branch list"
+                    echo "  code branch checkout <n> [--Sketch]"
+                    echo "  code branch switch <n>"
+                    echo "  code branch update"
+                    echo "  code branch check"
+                    ;;
+            esac
             ;;
-        switch-branch)
-            switch_branch "${1:-}"
+
+        # ── scoremore ─────────────────────────────────────────────────────────
+        scoremore)
+            local subcmd="${1:-restart}"; shift 2>/dev/null || true
+            case "$subcmd" in
+                start)           start_scoremore ;;
+                stop)            kill_scoremore_gracefully ;;
+                restart)         restart_scoremore ;;
+                download)
+                    local ver
+                    ver=$(_resolve_dl_version "${1?Missing version — use: scoremore download <ver> or latest}")
+                    download_scoremore_version "$ver"
+                    ;;
+                version)         scoremore_version ;;
+                check-update)    check_scoremore_update ;;
+                history)         scoremore_history "$@" ;;
+                rollback)        rollback_scoremore ;;
+                autostart)       setup_autostart ;;
+                remove-autostart) remove_autostart ;;
+                logs)            scoremore_logs "${1:-show}" ;;
+                *)
+                    die "Unknown scoremore subcommand: '$subcmd' — use: start, stop, restart, download, version, check-update, history, rollback, autostart, remove-autostart, logs"
+                    ;;
+            esac
             ;;
+
+        # ── system ────────────────────────────────────────────────────────────
+        system)
+            local subcmd="${1:-help}"; shift 2>/dev/null || true
+            case "$subcmd" in
+                doctor)           doctor ;;
+                preflight)        preflight "$@" ;;
+                backup)           backup_config "$@" ;;
+                repair)           repair ;;
+                cleanup)          disk_cleanup ;;
+                ports)            show_ports ;;
+                tail-all)         tail_all "$@" ;;
+                wait-for-network) wait_for_network "${1:-30}" ;;
+                serial)\n                    local sercmd="${1:-status}"; shift 2>/dev/null || true
+                    case "$sercmd" in
+                        start|stop|status|tail) serial_log "$sercmd" "$@" ;;
+                        console)                show_console ;;
+                        *)
+                            die "Unknown system serial subcommand: '$sercmd' — use: start, stop, status, tail, console"
+                            ;;
+                    esac
+                    ;;
+                watchdog)
+                    local wdcmd="${1:-run}"; shift 2>/dev/null || true
+                    case "$wdcmd" in
+                        run)     watchdog ;;
+                        enable)  setup_watchdog enable ;;
+                        disable) setup_watchdog disable ;;
+                        status)  setup_watchdog status ;;
+                        *)
+                            die "Unknown system watchdog subcommand: '$wdcmd' — use: run, enable, disable, status"
+                            ;;
+                    esac
+                    ;;
+                *)
+                    echo "system subcommands:"
+                    echo "  doctor                  check dependencies and dialout group"
+                    echo "  preflight [--quick]     pre-deploy checks"
+                    echo "  backup [--include-appimage]  archive sketches + config"
+                    echo "  repair                  fix common broken states automatically"
+                    echo "  cleanup                 remove old AppImages, build caches, old logs"
+                    echo "  ports                   list serial devices with USB info"
+                    echo "  tail-all [N]            interleave command + Arduino logs (live)"
+                    echo "  wait-for-network [N]    wait for internet connectivity"
+                    echo "  serial start|stop|status|tail|console"
+                    echo "  watchdog run|enable|disable|status"
+                    echo ""
+                    echo "See also: install setup|create-dir|cli|preflight"
+                    echo "         script version|update"
+                    ;;
+            esac
+            ;;
+        pi)
+            local subcmd="${1:-status}"; shift 2>/dev/null || true
+            case "$subcmd" in
+                status)   pi_status ;;
+                update)   pi_update ;;
+                reboot)   pi_reboot ;;
+                shutdown) pi_shutdown ;;
+                wifi)     wifi_status ;;
+                vnc)
+                    local vncmd="${1:-status}"; shift 2>/dev/null || true
+                    case "$vncmd" in
+                        status)  vnc_status ;;
+                        start)   vnc_setup start ;;
+                        stop)    vnc_setup stop ;;
+                        enable)  vnc_setup enable-autostart ;;
+                        disable) vnc_setup disable-autostart ;;
+                        *)
+                            die "Unknown pi vnc subcommand: '$vncmd' — use: status, start, stop, enable, disable"
+                            ;;
+                    esac
+                    ;;
+                *)
+                    die "Unknown pi subcommand: '$subcmd' — use: status, update, reboot, shutdown, wifi, vnc"
+                    ;;
+            esac
+            ;;
+
+        # ── logs (top-level shortcut) ─────────────────────────────────────────
+        logs)
+            show_logs "$@"
+            ;;
+
+        # ── install (top-level) ───────────────────────────────────────────────
+        install)
+            local instcmd="${1:-setup}"; shift 2>/dev/null || true
+            case "$instcmd" in
+                setup)      install_setup ;;
+                create-dir) ensure_directories ;;
+                cli)        install_cli ;;
+                preflight)  preflight "$@" ;;
+                *)
+                    die "Unknown install subcommand: '$instcmd' — use: setup, create-dir, cli, preflight"
+                    ;;
+            esac
+            ;;
+
+        # ── script (top-level) ────────────────────────────────────────────────
+        script)
+            local scrcmd="${1:-version}"; shift 2>/dev/null || true
+            case "$scrcmd" in
+                version) script_version ;;
+                update)  update_script ;;
+                *)
+                    die "Unknown script subcommand: '$scrcmd' — use: version, update"
+                    ;;
+            esac
+            ;;
+
         *)
-            echo "Unknown command: $cmd" >&2
+            echo "Unknown command: '$cmd'" >&2
+            echo "Run: mini-bowling.sh  (no arguments) to see all commands" >&2
             exit 1
             ;;
     esac

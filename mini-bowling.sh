@@ -4,11 +4,11 @@
 # https://github.com/glenpekarcsik/mini-bowling-script
 #
 # Usage examples:
-#   mini-bowling.sh deploy
-#   mini-bowling.sh code sketch upload --Master_Test
-#   mini-bowling.sh code sketch list
+#   mini-bowling.sh update
+#   mini-bowling.sh upload --Master_Test
+#   mini-bowling.sh upload --list-sketches
 #   mini-bowling.sh deploy --no-kill
-#   mini-bowling.sh scoremore download latest
+#   mini-bowling.sh download latest
 #
 
 set -euo pipefail
@@ -269,7 +269,7 @@ require_project_dir() {
 require_git_repo() {
     require_project_dir
     [[ -d "$PROJECT_DIR/.git" ]] || die "Project directory is not a git repository: $PROJECT_DIR
-  If you haven't cloned the repo yet, run: mini-bowling.sh install setup
+  If you haven't cloned the repo yet, run: mini-bowling.sh install
   Or clone manually: git clone <repo-url> \"$PROJECT_DIR\""
 }
 
@@ -657,12 +657,12 @@ list_branches() {
 
     echo
     echo "Usage:"
-    echo "  mini-bowling.sh code sketch upload --Master_Test --branch feature/new-sensor"
-    echo "  mini-bowling.sh code branch switch feature/new-sensor"
+    echo "  mini-bowling.sh sketch upload --Master_Test --branch feature/new-sensor"
+    echo "  mini-bowling.sh branch switch feature/new-sensor"
 }
 
 switch_branch() {
-    local branch="${1:?Missing branch name — usage: mini-bowling.sh code branch switch <branch>}"
+    local branch="${1:?Missing branch name — usage: mini-bowling.sh switch-branch <branch>}"
 
     require_git_repo
 
@@ -701,7 +701,7 @@ switch_branch() {
         echo "  (created local tracking branch from origin/$branch)"
     else
         $was_dirty && git stash pop --quiet 2>/dev/null || true
-        die "Cannot checkout '$branch' — run: mini-bowling.sh code branch list"
+        die "Cannot checkout '$branch' — run: mini-bowling.sh branch list"
     fi
 
     echo "→ Pulling latest commits for $branch..."
@@ -714,7 +714,7 @@ switch_branch() {
     echo -e "${GREEN}✓ Switched to $branch:${NC} [$commit] $subject"
     echo
     echo -e "${YELLOW}Note:${NC} you are now permanently on branch '$branch'."
-    echo "  To switch back: mini-bowling.sh code branch switch $DEFAULT_GIT_BRANCH"
+    echo "  To switch back: mini-bowling.sh branch switch $DEFAULT_GIT_BRANCH"
 
     if $was_dirty; then
         echo
@@ -782,9 +782,9 @@ list_available_sketches() {
     echo "Found $count sketch folder(s)."
     echo
     echo "Usage:"
-    echo "  mini-bowling.sh code sketch upload --Everything"
-    echo "  mini-bowling.sh code sketch upload --Master_Test"
-    echo "  mini-bowling.sh code sketch upload --YourFolderName"
+    echo "  mini-bowling.sh sketch upload --Everything"
+    echo "  mini-bowling.sh upload --Master_Test"
+    echo "  mini-bowling.sh upload --YourFolderName"
 }
 
 cmd_update() {
@@ -820,7 +820,7 @@ cmd_compile_and_upload() {
 
     if [[ ! -d "$sketch_path" ]]; then
         echo -e "${YELLOW}Folder not found:${NC} $sketch_dir"
-        echo "Run:   mini-bowling.sh code sketch list"
+        echo "Run:   mini-bowling.sh sketch list"
         die "Sketch folder missing: $sketch_dir"
     fi
 
@@ -1421,7 +1421,7 @@ cmd_test_upload() {
     local sketch_path="${PROJECT_DIR}/${sketch_dir}"
     if [[ ! -d "$sketch_path" ]]; then
         echo -e "${YELLOW}Folder not found:${NC} $sketch_dir"
-        echo "Run:   mini-bowling.sh code sketch list"
+        echo "Run:   mini-bowling.sh sketch list"
         die "Sketch folder missing: $sketch_dir"
     fi
 
@@ -1506,8 +1506,8 @@ scoremore_logs() {
                 printf "  %-50s  %s\n" "$(basename "$f")" "$(du -h "$f" | cut -f1)"
             done
             echo
-            echo "Run: mini-bowling.sh scoremore logs tail    (live tail latest log)"
-            echo "Run: mini-bowling.sh scoremore logs dump    (full output of latest)"
+            echo "Run: mini-bowling.sh scoremore-logs tail    (live tail latest log)"
+            echo "Run: mini-bowling.sh scoremore-logs dump    (full output of latest)"
             ;;
         tail)
             local latest
@@ -1634,66 +1634,6 @@ update_script() {
 
     echo -e "${GREEN}✓ Updated: $SCRIPT_VERSION → $new_version${NC}"
     echo "  Run 'mini-bowling.sh version' to confirm."
-}
-
-update_completion() {
-    local completion_dest="/etc/bash_completion.d/mini-bowling.sh"
-    local script_repo_dir="$HOME/.local/share/mini-bowling-script"
-
-    echo "Completion file : $completion_dest"
-    echo
-
-    # Ensure we have a current clone of the repo (reuse update_script's clone)
-    if [[ -d "$script_repo_dir/.git" ]]; then
-        echo "→ Fetching latest from $SCRIPT_REPO..."
-        git -C "$script_repo_dir" fetch --quiet origin main || \
-            die "git fetch failed — is the network available?"
-
-        local behind
-        behind=$(git -C "$script_repo_dir" rev-list HEAD..origin/main --count 2>/dev/null || echo 0)
-
-        if [[ "$behind" -gt 0 ]]; then
-            echo "→ $behind new commit(s) available — pulling..."
-            if ! git -C "$script_repo_dir" diff --quiet 2>/dev/null || \
-               ! git -C "$script_repo_dir" diff --cached --quiet 2>/dev/null; then
-                echo -e "  ${YELLOW}Local modifications found in clone — resetting to remote${NC}"
-                git -C "$script_repo_dir" reset --hard origin/main --quiet 2>/dev/null || true
-            fi
-            git -C "$script_repo_dir" pull --quiet origin main || {
-                echo -e "  ${YELLOW}Pull failed — re-cloning from scratch...${NC}"
-                rm -rf "$script_repo_dir"
-                mkdir -p "$(dirname "$script_repo_dir")"
-                git clone --quiet "$SCRIPT_REPO" "$script_repo_dir" || die "git clone failed"
-            }
-        else
-            echo -e "  ${GREEN}✓ Repo already up to date${NC}"
-        fi
-    else
-        echo "→ Cloning script repo..."
-        mkdir -p "$(dirname "$script_repo_dir")"
-        git clone --quiet "$SCRIPT_REPO" "$script_repo_dir" || die "git clone failed"
-    fi
-
-    local new_completion="$script_repo_dir/mini-bowling-completion.bash"
-    [[ -f "$new_completion" ]] || die "mini-bowling-completion.bash not found in repo at $new_completion"
-
-    # Validate syntax before installing
-    echo "→ Validating syntax of new completion file..."
-    if ! bash -n "$new_completion" 2>/dev/null; then
-        die "New completion file failed syntax check — aborting.
-  The downloaded file is at: $new_completion
-  Run 'bash -n $new_completion' to see the errors."
-    fi
-    echo -e "  ${GREEN}✓ Syntax OK${NC}"
-
-    echo "→ Installing to $completion_dest..."
-    sudo cp "$new_completion" "$completion_dest" || \
-        die "sudo cp failed — do you have sudo access?"
-
-    echo -e "${GREEN}✓ Completion file updated${NC}"
-    echo
-    echo "Reload it in your current shell with:"
-    echo "  source $completion_dest"
 }
 
 script_version() {
@@ -1849,7 +1789,7 @@ doctor() {
         if [[ -d "$dir" ]]; then
             printf "  ${GREEN}✓${NC}  %s\n" "$dir"
         else
-            printf "  ${YELLOW}-${NC}  %s  (not created yet — run: mini-bowling.sh install create-dir)\n" "$dir"
+            printf "  ${YELLOW}-${NC}  %s  (not created yet — run: mini-bowling.sh system install create-dir)\n" "$dir"
         fi
     done
 
@@ -2045,7 +1985,7 @@ install_setup() {
         echo "  Project directory already exists: $PROJECT_DIR"
         echo "  Running git pull to get latest code..."
         git -C "$PROJECT_DIR" pull origin "$DEFAULT_GIT_BRANCH" || \
-            echo -e "  ${YELLOW}Warning: git pull failed — check network and try 'mini-bowling.sh deploy' later${NC}"
+            echo -e "  ${YELLOW}Warning: git pull failed — check network and try 'mini-bowling.sh update' later${NC}"
     elif [[ -d "$PROJECT_DIR" ]]; then
         echo -e "  ${YELLOW}Directory exists but is not a git repo: $PROJECT_DIR${NC}"
         echo "  Skipped — if this is intentional, ignore this warning."
@@ -2138,10 +2078,10 @@ install_setup() {
     echo -e "${GREEN}✓ Setup complete.${NC}"
     echo
     echo "Next steps:"
-    echo "  1. Connect the Arduino and run:  mini-bowling.sh code sketch list"
+    echo "  1. Connect the Arduino and run:  mini-bowling.sh list"
     echo "  2. Update DEFAULT_PORT and BOARD in the script if needed"
     echo "  3. Re-copy the script:           sudo cp mini-bowling.sh /usr/bin/mini-bowling.sh"
-    echo "  4. Run a pre-flight check:       mini-bowling.sh system preflight"
+    echo "  4. Run a pre-flight check:       mini-bowling.sh preflight"
     echo "  5. Run your first deploy:        mini-bowling.sh deploy"
 }
 
@@ -2441,7 +2381,7 @@ scoremore_history() {
             ;;
 
         use)
-            local ver="${1?Missing version — e.g. mini-bowling.sh scoremore history use 1.8.0}"
+            local ver="${1?Missing version — e.g. mini-bowling.sh scoremore-history use 1.8.0}"
             local filename="${APP_NAME}-${ver}-${ARCH}.${EXTENSION}"
             local target="$SCOREMORE_DIR/$filename"
 
@@ -2803,7 +2743,7 @@ disk_cleanup() {
         backup_count=$(find "$backup_dir" -maxdepth 1 -name "mini-bowling-backup-*.tar.gz" 2>/dev/null | wc -l)
         backup_size_kb=$(du -sk "$backup_dir" 2>/dev/null | cut -f1)
         echo "  Backups: $backup_count file(s), $(( backup_size_kb / 1024 ))MB total"
-        echo "  (run 'mini-bowling.sh system backup' to apply the 10-backup retention limit)"
+        echo "  (run 'mini-bowling.sh backup' to apply the 10-backup retention limit)"
     fi
 
     echo
@@ -2870,19 +2810,19 @@ pi_update() {
 
     if [[ -f /var/run/reboot-required ]]; then
         echo -e "${YELLOW}→ A reboot is required to apply updates.${NC}"
-        echo "  Run: mini-bowling.sh pi reboot"
+        echo "  Run: mini-bowling.sh pi-reboot"
     fi
 }
 
 pi_reboot() {
-    sudo -n true 2>/dev/null || sudo true || die "sudo access required for reboot — run: sudo mini-bowling.sh pi reboot"
+    sudo -n true 2>/dev/null || sudo true || die "sudo access required for reboot — run: sudo mini-bowling.sh pi-reboot"
     echo -e "${YELLOW}Rebooting Raspberry Pi in 5 seconds... (Ctrl+C to cancel)${NC}"
     sleep 5
     sudo reboot
 }
 
 pi_shutdown() {
-    sudo -n true 2>/dev/null || sudo true || die "sudo access required for shutdown — run: sudo mini-bowling.sh pi shutdown"
+    sudo -n true 2>/dev/null || sudo true || die "sudo access required for shutdown — run: sudo mini-bowling.sh pi-shutdown"
     echo -e "${YELLOW}Shutting down Raspberry Pi in 5 seconds... (Ctrl+C to cancel)${NC}"
     sleep 5
     sudo shutdown -h now
@@ -3099,7 +3039,7 @@ vnc_setup() {
     # Unknown subcommand check (before VNC detection so error is always shown)
     case "$subcmd" in
         start|stop|enable-autostart|disable-autostart) ;;
-        *) die "Unknown pi vnc subcommand: '$subcmd' — use start, stop, enable-autostart, or disable-autostart" ;;
+        *) die "Unknown vnc-setup subcommand: '$subcmd' — use start, stop, enable-autostart, or disable-autostart" ;;
     esac
 
     # -- Detect installed VNC flavor -------------------------------------------
@@ -3213,7 +3153,7 @@ vnc_setup() {
                 else
                     die "No systemd VNC service found and raspi-config not available.
 Try installing RealVNC: sudo apt-get install realvnc-vnc-server
-Then re-run: mini-bowling.sh pi vnc enable"
+Then re-run: mini-bowling.sh vnc-setup enable-autostart"
                 fi
             fi
             ;;
@@ -3332,7 +3272,7 @@ with_git_branch() {
     else
         trap - INT TERM EXIT
         _with_git_branch_restore
-        die "Cannot checkout '$branch' — does it exist on remote? Run: mini-bowling.sh code branch list"
+        die "Cannot checkout '$branch' — does it exist on remote? Run: mini-bowling.sh branch list"
     fi
 
     # Pull latest commits for this branch from remote
@@ -3399,7 +3339,6 @@ Usage: mini-bowling.sh <command> [subcommand] [options]
     code branch switch <n>         Permanently switch to branch (fetches + pulls)
     code branch update             Pull latest commits for current branch
     code branch check              Check if remote has new commits without pulling
-    code console                   Open Arduino serial console (interactive)
 
   scoremore             ScoreMore application management
     scoremore start                Launch ScoreMore
@@ -3449,7 +3388,6 @@ Usage: mini-bowling.sh <command> [subcommand] [options]
   script                Script management
     script version                 Show version and check GitHub for updates
     script update                  Update script from GitHub (syntax-checked)
-    script update-completion       Update tab completion file from GitHub
 
   system                System administration
     system doctor                  Check dependencies, directories, dialout group
@@ -3504,7 +3442,6 @@ Examples:
   mini-bowling.sh system serial stop
   mini-bowling.sh system serial tail
   mini-bowling.sh system serial console
-  mini-bowling.sh code console
   mini-bowling.sh logs follow
   mini-bowling.sh logs tail 100 --date 2026-03-15
   mini-bowling.sh system tail-all
@@ -3530,7 +3467,6 @@ Examples:
   mini-bowling.sh install cli
   mini-bowling.sh script version
   mini-bowling.sh script update
-  mini-bowling.sh script update-completion
   mini-bowling.sh pi status
   mini-bowling.sh pi update
   mini-bowling.sh pi reboot
@@ -3576,7 +3512,7 @@ EOF
                     [[ "${3:-}" == "status" ]] && _log=false ;;
             esac ;;
         code)
-            # code branch list/check are read-only; code sketch list is read-only
+            # code branch list/check are read-only; code sketch list/compile are read-only
             case "${2:-}" in
                 branch)
                     case "${3:-}" in
@@ -3584,6 +3520,7 @@ EOF
                     esac ;;
                 sketch)
                     [[ "${3:-}" == "list" ]] && _log=false ;;
+                compile) _log=false ;;
             esac ;;
         script)
             # script version is read-only
@@ -3730,7 +3667,91 @@ _dispatch() {
                     esac
                     ;;
 
-                # code branch -------------------------------------------------
+                # code compile ------------------------------------------------
+                compile)
+                    # Compile the current sketch without uploading — defaults to Everything
+                    local sketch="Everything"
+                    [[ "${1:-}" == --* ]] && sketch="${1#--}" && shift
+                    require_project_dir
+                    require_arduino_cli
+                    local sketch_path="${PROJECT_DIR}/${sketch}"
+                    if [[ ! -d "$sketch_path" ]]; then
+                        echo -e "${YELLOW}Folder not found:${NC} $sketch"
+                        echo "Run: mini-bowling.sh code sketch list"
+                        die "Sketch folder missing: $sketch"
+                    fi
+                    if ! find "$sketch_path" -maxdepth 1 -type f -iname "*.ino" -print -quit 2>/dev/null | grep -q .; then
+                        die "No .ino file found in $sketch"
+                    fi
+                    echo "=== Compile: $sketch ==="
+                    echo "  Path  : $sketch_path"
+                    echo "  Board : $BOARD"
+                    echo
+                    local -a timeout_cmd=()
+                    command -v timeout >/dev/null 2>&1 && timeout_cmd=(timeout 120)
+                    "${timeout_cmd[@]}" arduino-cli compile \
+                        --fqbn "$BOARD" \
+                        "$sketch_path" && \
+                        echo -e "\n${GREEN}✓ Compile OK — $sketch builds cleanly${NC}" || {
+                        local exit_code=$?
+                        [[ $exit_code -eq 124 ]] && die "Compile timed out after 120s"
+                        die "Compile failed (exit $exit_code)"
+                    }
+                    ;;
+
+                # code pull ---------------------------------------------------
+                pull)
+                    # Pull latest code — default: current branch, or specify a branch
+                    require_git_repo
+                    local branch=""
+                    if [[ "${1:-}" == "--branch" ]]; then
+                        branch="${2:?Missing branch name after --branch}"
+                        shift 2
+                    elif [[ "${1:-}" == --branch=* ]]; then
+                        branch="${1#--branch=}"
+                        shift
+                    elif [[ -n "${1:-}" && "${1:-}" != --* ]]; then
+                        # bare branch name as positional arg
+                        branch="$1"
+                        shift
+                    fi
+
+                    local current
+                    current=$(git -C "$PROJECT_DIR" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "unknown")
+
+                    if [[ -n "$branch" && "$branch" != "$current" ]]; then
+                        echo "→ Fetching from remote..."
+                        git -C "$PROJECT_DIR" fetch --quiet origin 2>/dev/null || \
+                            echo -e "${YELLOW}Warning: fetch failed${NC}"
+                        echo -e "${YELLOW}Switching to branch:${NC} $branch"
+                        if git -C "$PROJECT_DIR" checkout --quiet "$branch" 2>/dev/null; then
+                            : # local branch
+                        elif git -C "$PROJECT_DIR" checkout --quiet -b "$branch" --track "origin/$branch" 2>/dev/null; then
+                            echo "  (created local tracking branch from origin/$branch)"
+                        else
+                            die "Cannot checkout '$branch' — run: mini-bowling.sh code branch list"
+                        fi
+                        current="$branch"
+                    else
+                        echo "→ Fetching from remote..."
+                        git -C "$PROJECT_DIR" fetch --quiet origin 2>/dev/null || \
+                            echo -e "${YELLOW}Warning: fetch failed${NC}"
+                    fi
+
+                    echo "→ Pulling latest commits for $current..."
+                    if ! git -C "$PROJECT_DIR" diff --quiet || ! git -C "$PROJECT_DIR" diff --cached --quiet; then
+                        echo -e "${YELLOW}Warning:${NC} uncommitted local changes — pulling anyway (may cause conflicts)"
+                    fi
+                    git -C "$PROJECT_DIR" pull origin "$current" 2>/dev/null || \
+                        die "git pull failed — check network and try again"
+
+                    local commit subject
+                    commit=$(git -C "$PROJECT_DIR" rev-parse --short HEAD 2>/dev/null || echo "unknown")
+                    subject=$(git -C "$PROJECT_DIR" log -1 --format='%s' 2>/dev/null || echo "")
+                    echo -e "${GREEN}✓ $current is up to date:${NC} [$commit] $subject"
+                    ;;
+
+
                 branch)
                     local subcmd="${1:-list}"; shift 2>/dev/null || true
                     case "$subcmd" in
@@ -3761,23 +3782,21 @@ _dispatch() {
                     esac
                     ;;
 
-                # code console -----------------------------------------------
-                console)
-                    show_console
-                    ;;
-
                 *)
                     echo "code subcommands:"
                     echo "  code sketch upload [--Name] [--branch <n>] [--no-kill]"
                     echo "  code sketch list"
                     echo "  code sketch test [--Name]"
                     echo "  code sketch rollback [N]"
+                    echo "  code compile [--Name]          compile sketch without uploading (default: Everything)"
+                    echo "  code pull                      pull latest from current branch"
+                    echo "  code pull <branch>             switch to branch and pull latest"
+                    echo "  code pull --branch <n>         switch to branch and pull latest"
                     echo "  code branch list"
                     echo "  code branch checkout <n> [--Sketch]"
                     echo "  code branch switch <n>"
                     echo "  code branch update"
                     echo "  code branch check"
-                    echo "  code console                   Open Arduino serial console"
                     ;;
             esac
             ;;
@@ -3819,8 +3838,7 @@ _dispatch() {
                 ports)            show_ports ;;
                 tail-all)         tail_all "$@" ;;
                 wait-for-network) wait_for_network "${1:-30}" ;;
-                serial)
-                    local sercmd="${1:-status}"; shift 2>/dev/null || true
+                serial)\n                    local sercmd="${1:-status}"; shift 2>/dev/null || true
                     case "$sercmd" in
                         start|stop|status|tail) serial_log "$sercmd" "$@" ;;
                         console)                show_console ;;
@@ -3855,7 +3873,7 @@ _dispatch() {
                     echo "  watchdog run|enable|disable|status"
                     echo ""
                     echo "See also: install setup|create-dir|cli|preflight"
-                    echo "         script version|update|update-completion"
+                    echo "         script version|update"
                     ;;
             esac
             ;;
@@ -3909,11 +3927,10 @@ _dispatch() {
         script)
             local scrcmd="${1:-version}"; shift 2>/dev/null || true
             case "$scrcmd" in
-                version)            script_version ;;
-                update)             update_script ;;
-                update-completion)  update_completion ;;
+                version) script_version ;;
+                update)  update_script ;;
                 *)
-                    die "Unknown script subcommand: '$scrcmd' — use: version, update, update-completion"
+                    die "Unknown script subcommand: '$scrcmd' — use: version, update"
                     ;;
             esac
             ;;

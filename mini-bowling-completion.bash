@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-#  mini-bowling-completion.bash - bash tab completion for mini-bowling.sh
+#  mini-bowling-completion.bash — bash tab completion for mini-bowling.sh
 #
 #  Install:
 #    sudo cp mini-bowling-completion.bash /etc/bash_completion.d/mini-bowling.sh
@@ -12,7 +12,6 @@ _mini_bowling_complete() {
     _init_completion || return
 
     local top_cmds="status info version deploy code scoremore pi logs system install script"
-    local code_subcmds="sketch branch console"
 
     # Word positions
     local cmd="${words[1]:-}"
@@ -68,50 +67,45 @@ _mini_bowling_complete() {
             sed 's/^ScoreMore-//;s/-arm64\.AppImage$//' | sort -V -r
     }
 
-    # -- Top level -------------------------------------------------------------
+    # ── Top level ─────────────────────────────────────────────────────────────
     if [[ $cword -eq 1 ]]; then
         COMPREPLY=( $(compgen -W "$top_cmds" -- "$cur") )
         return 0
     fi
 
-    # -- Second level ----------------------------------------------------------
+    # ── Second level ──────────────────────────────────────────────────────────
     if [[ $cword -eq 2 ]]; then
         case "$cmd" in
-            status)    COMPREPLY=( $(compgen -W "--watch -w" -- "$cur") ) ;;
-            deploy)    COMPREPLY=( $(compgen -W "--dry-run --no-kill --branch schedule unschedule" -- "$cur") ) ;;
-            code)      COMPREPLY=( $(compgen -W "$code_subcmds" -- "$cur") ) ;;
+            status)   COMPREPLY=( $(compgen -W "--watch -w" -- "$cur") ) ;;
+            deploy)   COMPREPLY=( $(compgen -W "--dry-run --no-kill --branch schedule unschedule" -- "$cur") ) ;;
+            code)     COMPREPLY=( $(compgen -W "sketch branch compile pull" -- "$cur") ) ;;
+            install)  COMPREPLY=( $(compgen -W "setup create-dir cli preflight" -- "$cur") ) ;;
+            script)   COMPREPLY=( $(compgen -W "version update" -- "$cur") ) ;;
             scoremore) COMPREPLY=( $(compgen -W "start stop restart download version check-update history rollback autostart remove-autostart logs" -- "$cur") ) ;;
-            pi)        COMPREPLY=( $(compgen -W "status update reboot shutdown wifi vnc" -- "$cur") ) ;;
-            logs)      COMPREPLY=( $(compgen -W "list follow dump tail clean" -- "$cur") ) ;;
-            system)    COMPREPLY=( $(compgen -W "doctor preflight backup repair cleanup ports tail-all wait-for-network serial watchdog" -- "$cur") ) ;;
-            install)   COMPREPLY=( $(compgen -W "setup create-dir cli preflight" -- "$cur") ) ;;
-            script)    COMPREPLY=( $(compgen -W "version update update-completion" -- "$cur") ) ;;
+            pi)       COMPREPLY=( $(compgen -W "status update reboot shutdown wifi vnc" -- "$cur") ) ;;
+            logs)     COMPREPLY=( $(compgen -W "follow dump tail clean" -- "$cur") ) ;;
+            system)   COMPREPLY=( $(compgen -W "doctor preflight backup repair cleanup ports tail-all install script wait-for-network serial watchdog" -- "$cur") ) ;;
         esac
         return 0
     fi
 
-    # -- Third level -----------------------------------------------------------
+    # ── Third level ───────────────────────────────────────────────────────────
     if [[ $cword -eq 3 ]]; then
         case "$cmd" in
-            status)
-                # status --watch N  ->  suggest refresh intervals
-                [[ "$sub" == "--watch" || "$sub" == "-w" ]] && \
-                    COMPREPLY=( $(compgen -W "3 5 10 30" -- "$cur") ) ;;
-            deploy)
+            sketch)
                 case "$sub" in
-                    schedule) COMPREPLY=( $(compgen -W "02:00 02:30 03:00 03:30" -- "$cur") ) ;;
-                    --branch) COMPREPLY=( $(compgen -W "$(_mb_branches)" -- "$cur") ) ;;
+                    upload|test) COMPREPLY=( $(compgen -W "--no-kill --branch $(_mb_sketches)" -- "$cur") ) ;;
+                    rollback)    COMPREPLY=( $(compgen -W "1 2 3" -- "$cur") ) ;;
                 esac ;;
-            code)
+            branch)
                 case "$sub" in
-                    sketch) COMPREPLY=( $(compgen -W "upload list test rollback" -- "$cur") ) ;;
-                    branch) COMPREPLY=( $(compgen -W "list checkout switch update check" -- "$cur") ) ;;
+                    checkout|switch) COMPREPLY=( $(compgen -W "$(_mb_branches)" -- "$cur") ) ;;
                 esac ;;
             scoremore)
                 case "$sub" in
-                    download) COMPREPLY=( $(compgen -W "latest $(_mb_sm_versions)" -- "$cur") ) ;;
-                    history)  COMPREPLY=( $(compgen -W "list use clean" -- "$cur") ) ;;
-                    logs)     COMPREPLY=( $(compgen -W "show list tail dump" -- "$cur") ) ;;
+                    download)  COMPREPLY=( $(compgen -W "latest $(_mb_sm_versions)" -- "$cur") ) ;;
+                    history)   COMPREPLY=( $(compgen -W "list use clean" -- "$cur") ) ;;
+                    logs)      COMPREPLY=( $(compgen -W "show list tail dump" -- "$cur") ) ;;
                 esac ;;
             pi)
                 case "$sub" in
@@ -119,68 +113,45 @@ _mini_bowling_complete() {
                 esac ;;
             logs)
                 case "$sub" in
-                    dump|tail) COMPREPLY=( $(compgen -W "--date" -- "$cur") ) ;;
-                    clean)     COMPREPLY=( $(compgen -W "--keep" -- "$cur") ) ;;
+                    dump|tail)  COMPREPLY=( $(compgen -W "--date" -- "$cur") ) ;;
+                    clean)      COMPREPLY=( $(compgen -W "--keep" -- "$cur") ) ;;
                 esac ;;
             system)
                 case "$sub" in
-                    preflight)        COMPREPLY=( $(compgen -W "--quick -q" -- "$cur") ) ;;
-                    backup)           COMPREPLY=( $(compgen -W "--include-appimage" -- "$cur") ) ;;
-                    tail-all)         COMPREPLY=( $(compgen -W "50 100 200" -- "$cur") ) ;;
+                    preflight)  COMPREPLY=( $(compgen -W "--quick -q" -- "$cur") ) ;;
+                    backup)     COMPREPLY=( $(compgen -W "--include-appimage" -- "$cur") ) ;;
+                    tail-all)   COMPREPLY=( $(compgen -W "50 100 200" -- "$cur") ) ;;
                     wait-for-network) COMPREPLY=( $(compgen -W "30 60 120" -- "$cur") ) ;;
-                    serial)           COMPREPLY=( $(compgen -W "start stop status tail console" -- "$cur") ) ;;
-                    watchdog)         COMPREPLY=( $(compgen -W "run enable disable status" -- "$cur") ) ;;
+                    install)    COMPREPLY=( $(compgen -W "setup create-dir cli preflight" -- "$cur") ) ;;
+                    script)     COMPREPLY=( $(compgen -W "version update" -- "$cur") ) ;;
+                    serial)     COMPREPLY=( $(compgen -W "start stop status tail console" -- "$cur") ) ;;
+                    watchdog)   COMPREPLY=( $(compgen -W "run enable disable status" -- "$cur") ) ;;
+                esac ;;
+            deploy)
+                case "$sub" in
+                    schedule)   COMPREPLY=( $(compgen -W "02:00 02:30 03:00 03:30" -- "$cur") ) ;;
+                    --branch)
+                        COMPREPLY=( $(compgen -W "$(_mb_branches)" -- "$cur") ) ;;
                 esac ;;
         esac
         return 0
     fi
 
-    # -- Fourth level ----------------------------------------------------------
+    # ── Fourth level ──────────────────────────────────────────────────────────
     if [[ $cword -eq 4 ]]; then
         case "$cmd" in
             logs)
-                # logs dump --date / logs tail N --date -> suggest dates
+                # logs tail N --date  or  logs dump --date  →  suggest dates
                 [[ "$sub" == "tail" || "$sub" == "dump" ]] && \
-                    COMPREPLY=( $(compgen -W "$(_mb_log_dates)" -- "$cur") )
-                ;;
+                    COMPREPLY=( $(compgen -W "$(_mb_log_dates)" -- "$cur") ) ;;
             scoremore)
                 # scoremore history use <version>
                 [[ "$sub" == "history" && "$subsub" == "use" ]] && \
-                    COMPREPLY=( $(compgen -W "$(_mb_sm_versions)" -- "$cur") )
-                ;;
-            code)
-                case "$sub" in
-                    sketch)
-                        case "$subsub" in
-                            upload|test) COMPREPLY=( $(compgen -W "--no-kill --branch $(_mb_sketches)" -- "$cur") ) ;;
-                            rollback)    COMPREPLY=( $(compgen -W "1 2 3" -- "$cur") ) ;;
-                        esac ;;
-                    branch)
-                        case "$subsub" in
-                            checkout|switch) COMPREPLY=( $(compgen -W "$(_mb_branches)" -- "$cur") ) ;;
-                        esac ;;
-                esac ;;
-        esac
-        return 0
-    fi
-
-    # -- Fifth level -----------------------------------------------------------
-    if [[ $cword -eq 5 ]]; then
-        case "$cmd" in
-            code)
-                case "$sub" in
-                    sketch)
-                        # code sketch upload --branch <TAB>  ->  suggest branches
-                        [[ "$subsub" == "upload" || "$subsub" == "test" ]] && \
-                            [[ "${words[4]}" == "--branch" ]] && \
-                            COMPREPLY=( $(compgen -W "$(_mb_branches)" -- "$cur") )
-                        ;;
-                    branch)
-                        # code branch checkout <branch> [--Sketch]
-                        [[ "$subsub" == "checkout" ]] && \
-                            COMPREPLY=( $(compgen -W "$(_mb_sketches)" -- "$cur") )
-                        ;;
-                esac ;;
+                    COMPREPLY=( $(compgen -W "$(_mb_sm_versions)" -- "$cur") ) ;;
+            branch)
+                # branch checkout <name> [--Sketch]
+                [[ "$sub" == "checkout" ]] && \
+                    COMPREPLY=( $(compgen -W "$(_mb_sketches)" -- "$cur") ) ;;
         esac
         return 0
     fi

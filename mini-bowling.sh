@@ -1672,6 +1672,33 @@ update_script() {
     fi
 
     echo -e "${GREEN}✓ Updated: $SCRIPT_VERSION → $new_version${NC}"
+
+    # Update mini-bowling (no .sh) if it's a separate copy in the same bin directory
+    local bin_dir; bin_dir=$(dirname "$script_path")
+    local plain_cmd="$bin_dir/mini-bowling"
+    if [[ -f "$plain_cmd" && ! -L "$plain_cmd" ]]; then
+        echo "→ Updating $plain_cmd..."
+        if [[ "$bin_dir" == /usr/bin || "$bin_dir" == /usr/local/bin ]]; then
+            sudo cp "$new_script" "$plain_cmd" || \
+                echo -e "  ${YELLOW}Warning: could not update $plain_cmd — run: sudo cp $new_script $plain_cmd${NC}"
+        else
+            cp "$new_script" "$plain_cmd" || \
+                echo -e "  ${YELLOW}Warning: could not update $plain_cmd${NC}"
+        fi
+        echo -e "  ${GREEN}✓ Updated:${NC} $plain_cmd"
+    fi
+
+    # Update tab completion file if it was previously installed to the standard location
+    local completion_src="$script_repo_dir/mini-bowling-completion.bash"
+    local completion_dst="/etc/bash_completion.d/mini-bowling.sh"
+    if [[ -f "$completion_src" && -f "$completion_dst" ]]; then
+        echo "→ Updating tab completion..."
+        sudo cp "$completion_src" "$completion_dst" || \
+            echo -e "  ${YELLOW}Warning: could not update completion file — run: sudo cp $completion_src $completion_dst${NC}"
+        echo -e "  ${GREEN}✓ Tab completion updated:${NC} $completion_dst"
+        echo "  Re-source to activate: source $completion_dst"
+    fi
+
     echo "  Run 'mini-bowling.sh version' to confirm."
 }
 

@@ -25,6 +25,11 @@ code sketch upload [--Name]    Compile + upload sketch (default: Everything)
 code sketch list               List available sketches
 code sketch test [--Name]      Compile-only check (no upload)
 code sketch rollback [N]       Roll back N git commits and re-upload
+code sketch info               Show sketch, branch, and commit currently on Arduino
+code compile [--Name]          Compile without uploading (default: Everything)
+code pull                      Pull latest for current branch
+code pull <branch>             Switch to branch and pull latest
+code switch [<branch>]         Permanently switch to branch (default: main)
 
 code branch list               List local + remote branches with commit info
 code branch checkout <n>       Temporarily checkout, compile, return to original
@@ -44,9 +49,9 @@ scoremore autostart status     Show whether autostart is configured
 scoremore logs [tail|dump]     View ScoreMore application logs
 scoremore watchdog run|enable|disable|status  ScoreMore crash watchdog
 
-pi status|update|reboot|shutdown  Raspberry Pi management
-pi wifi                           Wi-Fi diagnostics
-pi vnc status|start|stop|enable|disable  VNC management
+pi status|sysinfo|update|reboot|shutdown  Raspberry Pi management
+pi wifi                                   Wi-Fi diagnostics
+pi vnc status|start|stop|enable|disable   VNC management
 
 logs [follow|dump|tail|clean]  Log file management (--date YYYY-MM-DD for specific day)
 
@@ -203,6 +208,10 @@ Done.
 | `code sketch list` | List available sketch folders | — | `mini-bowling.sh code sketch list` |
 | `code sketch test` | Compile only — no upload | `[--Name]` | `mini-bowling.sh code sketch test --Everything` |
 | `code sketch rollback` | Roll back N git commits and re-upload | `[N]` (default: 1) | `mini-bowling.sh code sketch rollback` |
+| `code sketch info` | Show sketch, branch, and commit on Arduino | — | `mini-bowling.sh code sketch info` |
+| `code compile` | Compile sketch without uploading | `[--Name]` (default: Everything) | `mini-bowling.sh code compile --Master_Test` |
+| `code pull` | Pull latest for current branch (or switch+pull) | `[<branch>]` \| `--branch <n>` | `mini-bowling.sh code pull feature/new-sensor` |
+| `code switch` | Permanently switch to branch (default: main) | `[<branch>]` | `mini-bowling.sh code switch feature/new-sensor` |
 | `code branch list` | List all branches with latest commit info | — | `mini-bowling.sh code branch list` |
 | `code branch checkout` | Temporarily checkout branch, compile, return | `<branch> [--Sketch]` | `mini-bowling.sh code branch checkout feature/new-sensor` |
 | `code branch switch` | Permanently switch to branch (fetch + pull) | `<branch>` | `mini-bowling.sh code branch switch feature/new-sensor` |
@@ -220,7 +229,8 @@ Done.
 | `scoremore autostart disable` | Disable ScoreMore autostart | — | `mini-bowling.sh scoremore autostart disable` |
 | `scoremore autostart status` | Show whether autostart is configured | — | `mini-bowling.sh scoremore autostart status` |
 | `scoremore logs` | List/tail/dump ScoreMore application logs | `show` \| `tail` \| `dump` | `mini-bowling.sh scoremore logs tail` |
-| `pi status` | CPU temp, memory, disk, uptime | — | `mini-bowling.sh pi status` |
+| `pi status` | CPU temp, memory, disk, uptime, architecture, OS | — | `mini-bowling.sh pi status` |
+| `pi sysinfo` | Full system identity (hostnamectl) | — | `mini-bowling.sh pi sysinfo` |
 | `pi update` | Run apt update + upgrade | — | `mini-bowling.sh pi update` |
 | `pi reboot` | Reboot with 5-second countdown | — | `mini-bowling.sh pi reboot` |
 | `pi shutdown` | Shut down with 5-second countdown | — | `mini-bowling.sh pi shutdown` |
@@ -285,6 +295,12 @@ mini-bowling.sh code sketch list
 mini-bowling.sh code sketch test --Everything
 mini-bowling.sh code sketch rollback
 mini-bowling.sh code sketch rollback 2
+mini-bowling.sh code sketch info
+mini-bowling.sh code compile --Everything
+mini-bowling.sh code compile --Master_Test
+mini-bowling.sh code pull
+mini-bowling.sh code pull feature/new-sensor
+mini-bowling.sh code switch feature/new-sensor
 mini-bowling.sh code branch list
 mini-bowling.sh code branch switch feature/new-sensor
 mini-bowling.sh code branch switch main
@@ -526,7 +542,8 @@ Serial logs auto-rotate at 10MB. The console is blocked if serial logging is act
 ## Raspberry Pi Management
 
 ```bash
-mini-bowling.sh pi status      # CPU temp, memory, disk, uptime
+mini-bowling.sh pi status      # CPU temp, memory, disk, uptime, architecture, OS
+mini-bowling.sh pi sysinfo     # full system identity (hostnamectl)
 mini-bowling.sh pi update      # apt update + upgrade
 mini-bowling.sh pi reboot      # 5-second countdown (checks sudo first)
 mini-bowling.sh pi shutdown    # 5-second countdown (checks sudo first)
@@ -585,8 +602,17 @@ mini-bowling.sh <TAB>
 mini-bowling.sh code <TAB>
 →  sketch  branch
 
+mini-bowling.sh code <TAB>
+→  sketch  branch  compile  pull  switch
+
 mini-bowling.sh code sketch <TAB>
 →  upload  list  test  rollback
+
+mini-bowling.sh code compile <TAB>
+→  --Everything  --Master_Test  (sketch names from project dir)
+
+mini-bowling.sh code pull <TAB>
+→  --branch  main  feature/new-sensor  (branch names from git repo)
 
 mini-bowling.sh code branch <TAB>
 →  list  checkout  switch  update  check
@@ -661,24 +687,32 @@ mini-bowling.sh scoremore logs tail      # ScoreMore application logs
 
 ## Changelog
 
-### v3.0.0
+### v4.0.0
 
-**Command structure**
-- `scoremore watchdog` replaces `system watchdog` — watchdog is a ScoreMore concern, not a system concern
-- `scoremore autostart enable/disable/status` replaces the old `scoremore autostart` / `scoremore remove-autostart` pair
-- `code compile` removed — use `code sketch test` instead (same behaviour)
-- `code pull` removed — use `code branch switch` or `code branch update` instead
-- `install preflight` removed — use `system preflight` instead (one canonical path)
+> ⚠️ **Breaking changes** — if you have `system watchdog` or `scoremore autostart`/`scoremore remove-autostart` in any cron job or script, update those references before upgrading.
+
+**Breaking command changes**
+- `system watchdog` → `scoremore watchdog` (run/enable/disable/status)
+- `scoremore autostart` (bare enable) + `scoremore remove-autostart` → `scoremore autostart enable/disable/status`
+- `install preflight` removed — use `system preflight`
+
+**New commands**
+- `code pull [<branch>]` — pull latest for current branch, or switch+pull a named branch
+- `code switch [<branch>]` — shorthand for `code branch switch` (default: main)
+- `code compile [--Name]` — compile sketch without uploading (default: Everything)
+- `code sketch info` — show sketch name, branch, and commit currently flashed to the Arduino
+- `pi sysinfo` — full system identity via `hostnamectl`
+
+**Enhancements**
+- `pi status` now shows architecture (`dpkg --print-architecture`, `uname -m`) and OS name (`/etc/os-release`)
+- `code sketch upload`, `deploy`, and `code sketch rollback` now record the git branch in `.last-arduino-upload` (line 5) — `code sketch info` reads this
+- `code sketch upload` on the current branch skips unnecessary stash/fetch/checkout/restore
 
 **Bug fixes**
-- `system serial` commands crashed silently due to a literal `\n` corruption in the dispatch case arm
-- `setup_watchdog` used `mini-bowling` (without `.sh`) when building the cron command, producing an invalid entry
-- AppImage verification in `scoremore download` had dead code (`; exit 0` forced the launch test to always pass, so corrupt downloads were never caught)
-- Bare `git pull` in `code branch update` could fail in detached HEAD or with no tracking branch — now explicit `git pull origin <branch>`
-
-**Improvements**
-- `code sketch upload` on the current branch no longer does unnecessary stash/fetch/checkout/restore
-- All user-facing command references in help text and die messages updated to current command syntax
+- `system serial` commands crashed silently — a literal `\n` in the dispatch case arm caused `set -e` to exit on command not found
+- `scoremore watchdog enable` wrote an invalid cron entry — used `mini-bowling` instead of `mini-bowling.sh` in `command -v` lookup
+- `scoremore download` AppImage verification was dead code — `; exit 0` in the `bash -c` string forced the launch test to always pass, so corrupt downloads were never rejected
+- `code branch update` bare `git pull` could fail in detached HEAD or without a tracking branch — now explicit `git pull origin <branch>`
 
 ---
 
@@ -738,7 +772,7 @@ Major overhaul from the original v1.0.0 release.
 
 | Variable | Default | Description |
 |---|---|---|
-| `SCRIPT_VERSION` | `3.0.0` | Script version — bump when deploying updates |
+| `SCRIPT_VERSION` | `4.0.0` | Script version — bump when deploying updates |
 | `DEFAULT_GIT_BRANCH` | `main` | Branch used by `branch update` and `deploy` |
 | `PROJECT_DIR` | `~/Documents/Bowling/Arduino/mini-bowling` | Arduino sketch root (override with `$MINI_BOWLING_DIR`) |
 | `DEFAULT_PORT` | `/dev/ttyACM0` | Arduino serial port (override with `$PORT` at runtime) |

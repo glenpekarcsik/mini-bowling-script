@@ -19,7 +19,7 @@ IFS=$'\n\t'
 # ------------------------------------------------
 
 readonly DEFAULT_GIT_BRANCH="main"
-readonly SCRIPT_VERSION="3.0.0"
+readonly SCRIPT_VERSION="4.0.0"
 readonly SCRIPT_REPO="https://github.com/glenpekarcsik/mini-bowling-script.git"
 readonly PROJECT_DIR="${MINI_BOWLING_DIR:-$HOME/Documents/Bowling/Arduino/mini-bowling}"
 readonly DEFAULT_PORT="/dev/ttyACM0"
@@ -787,6 +787,42 @@ list_available_sketches() {
     echo "  mini-bowling.sh code sketch upload --YourFolderName"
 }
 
+cmd_sketch_info() {
+    echo "=== Arduino Sketch Info ==="
+    echo
+
+    if [[ ! -f "$ARDUINO_STATUS_FILE" ]]; then
+        echo "No upload recorded yet."
+        echo "  Run: mini-bowling.sh code sketch upload --Everything"
+        return 0
+    fi
+
+    local sketch time commit subject branch
+    sketch=$(sed -n '1p'  "$ARDUINO_STATUS_FILE")
+    time=$(sed -n '2p'    "$ARDUINO_STATUS_FILE")
+    commit=$(sed -n '3p'  "$ARDUINO_STATUS_FILE")
+    subject=$(sed -n '4p' "$ARDUINO_STATUS_FILE")
+    branch=$(sed -n '5p'  "$ARDUINO_STATUS_FILE")
+
+    echo "Sketch      : $sketch"
+    echo "Uploaded at : $time"
+    echo "Commit      : $commit${subject:+  — $subject}"
+    echo "Branch      : ${branch:-unknown}"
+
+    # Show how the recorded branch compares to the current repo branch
+    if [[ -d "$PROJECT_DIR/.git" ]]; then
+        local current_branch
+        current_branch=$(git -C "$PROJECT_DIR" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "unknown")
+        if [[ -n "$branch" && "$branch" != "unknown" && "$branch" != "$current_branch" ]]; then
+            echo
+            echo -e "${YELLOW}Note:${NC} Arduino is running code from branch '$branch',"
+            echo "  but the repo is currently on '$current_branch'."
+        elif [[ "$branch" == "$current_branch" ]]; then
+            echo -e "  ${GREEN}(repo is on the same branch)${NC}"
+        fi
+    fi
+}
+
 cmd_update() {
     require_git_repo
 
@@ -870,6 +906,7 @@ cmd_compile_and_upload() {
         echo "$(date '+%Y-%m-%d %H:%M:%S')"
         echo "$(git -C "$PROJECT_DIR" rev-parse --short HEAD 2>/dev/null || echo 'unknown')"
         echo "$(git -C "$PROJECT_DIR" log -1 --format='%s' 2>/dev/null || echo '')"
+        echo "$(git -C "$PROJECT_DIR" rev-parse --abbrev-ref HEAD 2>/dev/null || echo 'unknown')"
     } > "$ARDUINO_STATUS_FILE"
 
     # Item 2: restart serial logging if it was running before the upload
@@ -2258,6 +2295,7 @@ cmd_rollback() {
         echo "$(date '+%Y-%m-%d %H:%M:%S')"
         echo "$(git -C "$PROJECT_DIR" rev-parse --short HEAD 2>/dev/null || echo 'unknown')"
         echo "$(git -C "$PROJECT_DIR" log -1 --format='%s' 2>/dev/null || echo '')"
+        echo "$(git -C "$PROJECT_DIR" rev-parse --abbrev-ref HEAD 2>/dev/null || echo 'unknown')"
     } > "$ARDUINO_STATUS_FILE"
 
     start_scoremore
@@ -2802,6 +2840,32 @@ pi_status() {
     echo "Disk Usage:"
     df -h / "$HOME" 2>/dev/null | awk 'NR==1 || NR>1 {printf "  %-20s %s\n", $6, $0}' | \
         grep -v "^  Mounted" || df -h /
+
+    # Architecture and OS
+    echo
+    local arch_dpkg arch_kernel os_name os_version
+    arch_dpkg=$(dpkg --print-architecture 2>/dev/null || echo "unavailable")
+    arch_kernel=$(uname -m 2>/dev/null || echo "unavailable")
+    os_name=$(. /etc/os-release 2>/dev/null && echo "${PRETTY_NAME:-}" || echo "unavailable")
+    echo "Architecture: $arch_dpkg  (kernel: $arch_kernel)"
+    echo "OS          : $os_name"
+}
+
+pi_sysinfo() {
+    echo "=== System Info ==="
+    echo
+    if command -v hostnamectl >/dev/null 2>&1; then
+        hostnamectl 2>/dev/null || echo "hostnamectl failed"
+    else
+        echo "hostnamectl not available — showing fallback info:"
+        echo
+        echo "  Hostname    : $(hostname 2>/dev/null || echo 'unknown')"
+        echo "  Kernel      : $(uname -r 2>/dev/null || echo 'unknown')"
+        echo "  Architecture: $(uname -m 2>/dev/null || echo 'unknown')"
+        local os_name
+        os_name=$(. /etc/os-release 2>/dev/null && echo "${PRETTY_NAME:-}" || echo "unknown")
+        echo "  OS          : $os_name"
+    fi
 }
 
 pi_update() {
@@ -3336,6 +3400,12 @@ Usage: mini-bowling.sh <command> [subcommand] [options]
     code sketch list               List available sketch folders
     code sketch test [--Name]      Compile only — no upload (default: Everything)
     code sketch rollback [N]       Roll back N git commits and re-upload (default: 1)
+    code sketch info               Show sketch, branch, and commit currently on Arduino
+    code compile [--Name]          Compile sketch without uploading (default: Everything)
+    code pull                      Pull latest for current branch
+    code pull <branch>             Switch to branch and pull latest
+    code pull --branch <n>         Switch to branch and pull latest
+    code switch [<branch>]         Permanently switch to branch (default: main)
     code branch list               List local + remote branches with commit info
     code branch checkout <n>       Temporarily checkout, compile, return to original
     code branch switch <n>         Permanently switch to branch (fetches + pulls)
@@ -3366,7 +3436,8 @@ Usage: mini-bowling.sh <command> [subcommand] [options]
     scoremore watchdog status      Show whether watchdog cron is installed
 
   pi                    Raspberry Pi management
-    pi status                      CPU temp, memory, disk, uptime
+    pi status                      CPU temp, memory, disk, uptime, architecture, OS
+    pi sysinfo                     Full system identity (hostnamectl)
     pi update                      Run apt update + upgrade
     pi reboot                      Reboot (5-second countdown, checks sudo first)
     pi shutdown                    Shut down (5-second countdown, checks sudo first)
@@ -3425,6 +3496,11 @@ Examples:
   mini-bowling.sh code sketch list
   mini-bowling.sh code sketch test --Everything
   mini-bowling.sh code sketch rollback
+  mini-bowling.sh code compile --Everything
+  mini-bowling.sh code compile --Master_Test
+  mini-bowling.sh code pull
+  mini-bowling.sh code pull feature/new-sensor
+  mini-bowling.sh code switch feature/new-sensor
   mini-bowling.sh code branch list
   mini-bowling.sh code branch switch feature/new-sensor
   mini-bowling.sh code branch checkout feature/new-sensor --Master_Test
@@ -3512,9 +3588,9 @@ EOF
                     [[ "${3:-}" == "status" ]] && _log=false ;;
             esac ;;
         pi)
-            # pi status/wifi are read-only; pi vnc status is read-only
+            # pi status/sysinfo/wifi are read-only; pi vnc status is read-only
             case "${2:-}" in
-                status|wifi)
+                status|sysinfo|wifi)
                     _log=false ;;
                 vnc)
                     [[ "${3:-}" == "status" ]] && _log=false ;;
@@ -3527,7 +3603,7 @@ EOF
                         list|check) _log=false ;;
                     esac ;;
                 sketch)
-                    [[ "${3:-}" == "list" ]] && _log=false ;;
+                    [[ "${3:-}" == "list" || "${3:-}" == "info" ]] && _log=false ;;
                 compile) _log=false ;;
             esac ;;
         script)
@@ -3673,8 +3749,11 @@ _dispatch() {
                         rollback)
                             cmd_rollback "${1:-1}"
                             ;;
+                        info)
+                            cmd_sketch_info
+                            ;;
                         *)
-                            die "Unknown code sketch subcommand: '$subcmd' — use: upload, list, test, rollback"
+                            die "Unknown code sketch subcommand: '$subcmd' — use: upload, list, test, rollback, info"
                             ;;
                     esac
                     ;;
@@ -3709,12 +3788,108 @@ _dispatch() {
                     esac
                     ;;
 
+                # code pull ---------------------------------------------------
+                pull)
+                    # Pull latest code — current branch by default.
+                    # With a branch arg, switches to that branch first then pulls.
+                    require_git_repo
+                    local branch=""
+                    if [[ "${1:-}" == "--branch" ]]; then
+                        branch="${2:?Missing branch name after --branch}"
+                        shift 2
+                    elif [[ "${1:-}" == --branch=* ]]; then
+                        branch="${1#--branch=}"
+                        shift
+                    elif [[ -n "${1:-}" && "${1:-}" != --* ]]; then
+                        branch="$1"
+                        shift
+                    fi
+
+                    local current
+                    current=$(git -C "$PROJECT_DIR" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "unknown")
+
+                    if [[ -n "$branch" && "$branch" != "$current" ]]; then
+                        echo "→ Fetching from remote..."
+                        git -C "$PROJECT_DIR" fetch --quiet origin 2>/dev/null || \
+                            echo -e "${YELLOW}Warning: fetch failed${NC}"
+                        echo -e "${YELLOW}Switching to branch:${NC} $branch"
+                        if git -C "$PROJECT_DIR" checkout --quiet "$branch" 2>/dev/null; then
+                            : # local branch exists
+                        elif git -C "$PROJECT_DIR" checkout --quiet -b "$branch" --track "origin/$branch" 2>/dev/null; then
+                            echo "  (created local tracking branch from origin/$branch)"
+                        else
+                            die "Cannot checkout '$branch' — run: mini-bowling.sh code branch list"
+                        fi
+                        current="$branch"
+                    else
+                        echo "→ Fetching from remote..."
+                        git -C "$PROJECT_DIR" fetch --quiet origin 2>/dev/null || \
+                            echo -e "${YELLOW}Warning: fetch failed${NC}"
+                    fi
+
+                    if ! git -C "$PROJECT_DIR" diff --quiet || ! git -C "$PROJECT_DIR" diff --cached --quiet; then
+                        echo -e "${YELLOW}Warning:${NC} uncommitted local changes — pulling anyway (may cause conflicts)"
+                    fi
+                    echo "→ Pulling latest commits for $current..."
+                    git -C "$PROJECT_DIR" pull origin "$current" 2>/dev/null || \
+                        die "git pull failed — check network and try again"
+
+                    local commit subject
+                    commit=$(git -C "$PROJECT_DIR" rev-parse --short HEAD 2>/dev/null || echo "unknown")
+                    subject=$(git -C "$PROJECT_DIR" log -1 --format='%s' 2>/dev/null || echo "")
+                    echo -e "${GREEN}✓ $current is up to date:${NC} [$commit] $subject"
+                    ;;
+
+                # code switch -------------------------------------------------
+                switch)
+                    # Shorthand for: code branch switch <branch> (default: main)
+                    switch_branch "${1:-$DEFAULT_GIT_BRANCH}"
+                    ;;
+
+                # code compile ------------------------------------------------
+                compile)
+                    # Compile sketch without uploading — defaults to Everything
+                    local sketch="Everything"
+                    [[ "${1:-}" == --* ]] && sketch="${1#--}" && shift
+                    require_project_dir
+                    require_arduino_cli
+                    local sketch_path="${PROJECT_DIR}/${sketch}"
+                    if [[ ! -d "$sketch_path" ]]; then
+                        echo -e "${YELLOW}Folder not found:${NC} $sketch"
+                        echo "Run: mini-bowling.sh code sketch list"
+                        die "Sketch folder missing: $sketch"
+                    fi
+                    if ! find "$sketch_path" -maxdepth 1 -type f -iname "*.ino" -print -quit 2>/dev/null | grep -q .; then
+                        die "No .ino file found in $sketch"
+                    fi
+                    echo "=== Compile: $sketch ==="
+                    echo "  Path  : $sketch_path"
+                    echo "  Board : $BOARD"
+                    echo
+                    local -a timeout_cmd=()
+                    command -v timeout >/dev/null 2>&1 && timeout_cmd=(timeout 120)
+                    "${timeout_cmd[@]}" arduino-cli compile \
+                        --fqbn "$BOARD" \
+                        "$sketch_path" && \
+                        echo -e "\n${GREEN}✓ Compile OK — $sketch builds cleanly${NC}" || {
+                        local exit_code=$?
+                        [[ $exit_code -eq 124 ]] && die "Compile timed out after 120s"
+                        die "Compile failed (exit $exit_code)"
+                    }
+                    ;;
+
                 *)
                     echo "code subcommands:"
                     echo "  code sketch upload [--Name] [--branch <n>] [--no-kill]"
                     echo "  code sketch list"
                     echo "  code sketch test [--Name]      compile only — no upload"
                     echo "  code sketch rollback [N]"
+                    echo "  code sketch info               sketch, branch, and commit on Arduino"
+                    echo "  code compile [--Name]          compile sketch without uploading (default: Everything)"
+                    echo "  code pull                      pull latest for current branch"
+                    echo "  code pull <branch>             switch to branch and pull latest"
+                    echo "  code pull --branch <n>         switch to branch and pull latest"
+                    echo "  code switch [<branch>]         permanently switch to branch (default: main)"
                     echo "  code branch list"
                     echo "  code branch checkout <n> [--Sketch]"
                     echo "  code branch switch <n>         permanently switch branch"
@@ -3789,6 +3964,23 @@ _dispatch() {
                 ports)            show_ports ;;
                 tail-all)         tail_all "$@" ;;
                 wait-for-network) wait_for_network "${1:-30}" ;;
+                watchdog)
+                    # Deprecated: watchdog moved to 'scoremore watchdog' in v4.0.0
+                    echo -e "${YELLOW}Warning:${NC} 'system watchdog' has moved to 'scoremore watchdog' as of v4.0.0." >&2
+                    echo -e "  Please update any cron jobs or scripts to use: mini-bowling.sh scoremore watchdog $*" >&2
+                    echo >&2
+                    setup_watchdog_or_run() {
+                        local wdcmd="${1:-run}"; shift 2>/dev/null || true
+                        case "$wdcmd" in
+                            run)     watchdog ;;
+                            enable)  setup_watchdog enable ;;
+                            disable) setup_watchdog disable ;;
+                            status)  setup_watchdog status ;;
+                            *)       die "Unknown watchdog subcommand: '$wdcmd' — use: run, enable, disable, status" ;;
+                        esac
+                    }
+                    setup_watchdog_or_run "$@"
+                    ;;
                 serial)
                     local sercmd="${1:-status}"; shift 2>/dev/null || true
                     case "$sercmd" in
@@ -3822,6 +4014,7 @@ _dispatch() {
             local subcmd="${1:-status}"; shift 2>/dev/null || true
             case "$subcmd" in
                 status)   pi_status ;;
+                sysinfo)  pi_sysinfo ;;
                 update)   pi_update ;;
                 reboot)   pi_reboot ;;
                 shutdown) pi_shutdown ;;
@@ -3840,7 +4033,7 @@ _dispatch() {
                     esac
                     ;;
                 *)
-                    die "Unknown pi subcommand: '$subcmd' — use: status, update, reboot, shutdown, wifi, vnc"
+                    die "Unknown pi subcommand: '$subcmd' — use: status, sysinfo, update, reboot, shutdown, wifi, vnc"
                     ;;
             esac
             ;;

@@ -78,11 +78,11 @@ _mini_bowling_complete() {
         case "$cmd" in
             status)   COMPREPLY=( $(compgen -W "--watch -w" -- "$cur") ) ;;
             deploy)   COMPREPLY=( $(compgen -W "--dry-run --no-kill --branch schedule unschedule" -- "$cur") ) ;;
-            code)     COMPREPLY=( $(compgen -W "sketch branch compile pull" -- "$cur") ) ;;
-            install)  COMPREPLY=( $(compgen -W "setup create-dir cli preflight" -- "$cur") ) ;;
+            code)     COMPREPLY=( $(compgen -W "sketch branch compile pull switch" -- "$cur") ) ;;
+            install)  COMPREPLY=( $(compgen -W "setup create-dir cli" -- "$cur") ) ;;
             script)   COMPREPLY=( $(compgen -W "version update" -- "$cur") ) ;;
             scoremore) COMPREPLY=( $(compgen -W "start stop restart download version check-update history rollback autostart remove-autostart logs" -- "$cur") ) ;;
-            pi)       COMPREPLY=( $(compgen -W "status update reboot shutdown wifi vnc" -- "$cur") ) ;;
+            pi)       COMPREPLY=( $(compgen -W "status sysinfo update reboot shutdown wifi vnc" -- "$cur") ) ;;
             logs)     COMPREPLY=( $(compgen -W "follow dump tail clean" -- "$cur") ) ;;
             system)   COMPREPLY=( $(compgen -W "doctor preflight backup repair cleanup ports tail-all install script wait-for-network serial watchdog" -- "$cur") ) ;;
         esac
@@ -92,6 +92,27 @@ _mini_bowling_complete() {
     # ── Third level ───────────────────────────────────────────────────────────
     if [[ $cword -eq 3 ]]; then
         case "$cmd" in
+            code)
+                case "$sub" in
+                    pull)    COMPREPLY=( $(compgen -W "--branch $(_mb_branches)" -- "$cur") ) ;;
+                    switch)  COMPREPLY=( $(compgen -W "$(_mb_branches)" -- "$cur") ) ;;
+                    compile) COMPREPLY=( $(compgen -W "$(_mb_sketches)" -- "$cur") ) ;;
+                    sketch)
+                        # If completing the sketch subcommand name itself
+                        if [[ $cword -eq 3 ]]; then
+                            COMPREPLY=( $(compgen -W "upload list test rollback info" -- "$cur") )
+                            return 0
+                        fi
+                        case "${words[3]:-}" in
+                            upload|test) COMPREPLY=( $(compgen -W "--no-kill --branch $(_mb_sketches)" -- "$cur") ) ;;
+                            rollback)    COMPREPLY=( $(compgen -W "1 2 3" -- "$cur") ) ;;
+                            info)        return 0 ;;
+                        esac ;;
+                    branch)
+                        case "${words[3]:-}" in
+                            checkout|switch) COMPREPLY=( $(compgen -W "$(_mb_branches)" -- "$cur") ) ;;
+                        esac ;;
+                esac ;;
             sketch)
                 case "$sub" in
                     upload|test) COMPREPLY=( $(compgen -W "--no-kill --branch $(_mb_sketches)" -- "$cur") ) ;;

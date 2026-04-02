@@ -3631,7 +3631,7 @@ EOF
                     esac ;;
                 sketch)
                     [[ "${3:-}" == "list" || "${3:-}" == "info" ]] && _log=false ;;
-                compile) _log=false ;;
+                compile|console) _log=false ;;
             esac ;;
         script)
             # script version is read-only
@@ -3905,6 +3905,12 @@ _dispatch() {
                     }
                     ;;
 
+                # code console ------------------------------------------------
+                console)
+                    # Shorthand for: system serial console
+                    show_console
+                    ;;
+
                 *)
                     echo "code subcommands:"
                     echo "  code sketch upload [--Name] [--branch <n>] [--no-kill]"
@@ -3917,6 +3923,7 @@ _dispatch() {
                     echo "  code pull <branch>             switch to branch and pull latest"
                     echo "  code pull --branch <n>         switch to branch and pull latest"
                     echo "  code switch [<branch>]         permanently switch to branch (default: main)"
+                    echo "  code console                   open interactive serial console"
                     echo "  code branch list"
                     echo "  code branch checkout <n> [--Sketch]"
                     echo "  code branch switch <n>         permanently switch branch"

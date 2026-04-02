@@ -78,7 +78,7 @@ _mini_bowling_complete() {
         case "$cmd" in
             status)   COMPREPLY=( $(compgen -W "--watch -w" -- "$cur") ) ;;
             deploy)   COMPREPLY=( $(compgen -W "--dry-run --no-kill --branch schedule unschedule" -- "$cur") ) ;;
-            code)     COMPREPLY=( $(compgen -W "sketch branch compile pull switch" -- "$cur") ) ;;
+            code)     COMPREPLY=( $(compgen -W "sketch branch compile pull switch console" -- "$cur") ) ;;
             install)  COMPREPLY=( $(compgen -W "setup create-dir cli" -- "$cur") ) ;;
             script)   COMPREPLY=( $(compgen -W "version update" -- "$cur") ) ;;
             scoremore) COMPREPLY=( $(compgen -W "start stop restart download version check-update history rollback autostart remove-autostart logs" -- "$cur") ) ;;

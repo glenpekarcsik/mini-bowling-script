@@ -21,16 +21,16 @@ deploy [--flags]               Pull → upload Everything → restart ScoreMore
 deploy schedule HH:MM          Schedule daily deploy
 deploy unschedule              Remove scheduled deploy
 
-sketch upload [--Name]         Compile + upload sketch
-sketch list                    List available sketches
+code sketch upload [--Name]    Compile + upload sketch (default: Everything)
+code sketch list               List available sketches
 code sketch test [--Name]      Compile-only check (no upload)
-sketch rollback [N]            Roll back N commits and re-upload
+code sketch rollback [N]       Roll back N git commits and re-upload
 
-branch list                    List local + remote branches with commit info
-branch checkout <n>            Temporarily checkout, compile, return to original
-branch switch <n>              Permanently switch to branch (fetches + pulls)
-branch update                  Pull latest for current branch
-branch check                   Check if remote has new commits
+code branch list               List local + remote branches with commit info
+code branch checkout <n>       Temporarily checkout, compile, return to original
+code branch switch <n>         Permanently switch to branch (fetches + pulls)
+code branch update             Pull latest for current branch
+code branch check              Check if remote has new commits
 
 scoremore start|stop|restart   Manage ScoreMore process
 scoremore download <ver>       Download version (or 'latest')
@@ -38,9 +38,11 @@ scoremore version              Show active version
 scoremore check-update         Check scoremorebowling.com for updates
 scoremore history              Manage downloaded versions
 scoremore rollback             Switch to previous version
-scoremore autostart            Enable autostart on login
-scoremore remove-autostart     Disable autostart
+scoremore autostart enable     Enable autostart on login
+scoremore autostart disable    Disable autostart
+scoremore autostart status     Show whether autostart is configured
 scoremore logs [tail|dump]     View ScoreMore application logs
+scoremore watchdog run|enable|disable|status  ScoreMore crash watchdog
 
 pi status|update|reboot|shutdown  Raspberry Pi management
 pi wifi                           Wi-Fi diagnostics
@@ -56,10 +58,9 @@ system cleanup                 Remove old AppImages, caches, old logs
 system ports                   List serial devices with USB info
 system tail-all [N]            Interleave command + Arduino logs live
 system serial start|stop|status|tail|console
-system watchdog run|enable|disable|status
 system wait-for-network [N]
 
-install setup|create-dir|cli|preflight
+install setup|create-dir|cli
 script version|update
 ```
 
@@ -71,21 +72,21 @@ script version|update
 - Port and sketch existence verified before killing ScoreMore — nothing goes down for a typo
 - Deploy lock file prevents watchdog from restarting ScoreMore mid-deploy
 - Dry-run mode — preview what a deploy would do without making any changes (`deploy --dry-run`)
-- Roll back to a previous git commit and re-upload the last-used sketch (`sketch rollback`)
+- Roll back to a previous git commit and re-upload the last-used sketch (`code sketch rollback`)
 - Network wait tries multiple DNS hosts (8.8.8.8, 1.1.1.1, 9.9.9.9)
 
 **Branch Management**
-- List all local and remote branches with latest commit info (`branch list`)
-- Upload from any branch temporarily — fetches + pulls latest, returns to original after (`sketch upload --branch`)
-- Permanently switch the repo to a branch with fetch + pull (`branch switch`)
-- Check for remote commits without pulling (`branch check`)
+- List all local and remote branches with latest commit info (`code branch list`)
+- Upload from any branch temporarily — fetches + pulls latest, returns to original after (`code sketch upload --branch`)
+- Permanently switch the repo to a branch with fetch + pull (`code branch switch`)
+- Check for remote commits without pulling (`code branch check`)
 
 **ScoreMore**
 - Download any version with disk space guard and integrity check (`scoremore download`)
 - AppImage verified with a launch test before the symlink is switched
 - One-command restart — kill and relaunch ScoreMore instantly (`scoremore restart`)
 - ScoreMore launched with auto-detected display — works over VNC and non-`:0` sessions
-- Watchdog auto-restarts ScoreMore if it crashes, skips restart during active deploys (`system watchdog`)
+- Watchdog auto-restarts ScoreMore if it crashes, skips restart during active deploys (`scoremore watchdog`)
 - View ScoreMore's own application logs (`scoremore logs`)
 
 **Diagnostics & Monitoring**
@@ -110,7 +111,7 @@ script version|update
 
 ## Requirements
 
-- `arduino-cli` installed and configured — install via `mini-bowling.sh system install cli`
+- `arduino-cli` installed and configured — install via `mini-bowling.sh install cli`
 - `git` in the project directory
 - `curl`, `realpath`, `pgrep`, `pkill`, `nohup`
 - Write access to `~/Desktop` (for the ScoreMore symlink)
@@ -144,9 +145,9 @@ mini-bowling.sh install create-dir
 mini-bowling.sh install cli
 git clone <repo-url> ~/Documents/Bowling/Arduino/mini-bowling
 mini-bowling.sh scoremore download latest
-mini-bowling.sh scoremore autostart
+mini-bowling.sh scoremore autostart enable
 mini-bowling.sh system doctor
-mini-bowling.sh system watchdog enable
+mini-bowling.sh scoremore watchdog enable
 mini-bowling.sh deploy schedule 02:30
 ```
 
@@ -215,8 +216,9 @@ Done.
 | `scoremore check-update` | Check scoremorebowling.com for updates | — | `mini-bowling.sh scoremore check-update` |
 | `scoremore history` | Manage downloaded versions | `list` \| `use <ver>` \| `clean` | `mini-bowling.sh scoremore history use 1.7.0` |
 | `scoremore rollback` | Switch to previous downloaded version | — | `mini-bowling.sh scoremore rollback` |
-| `scoremore autostart` | Enable ScoreMore autostart on login | — | `mini-bowling.sh scoremore autostart` |
-| `scoremore remove-autostart` | Disable ScoreMore autostart | — | `mini-bowling.sh scoremore remove-autostart` |
+| `scoremore autostart enable` | Enable ScoreMore autostart on login | — | `mini-bowling.sh scoremore autostart enable` |
+| `scoremore autostart disable` | Disable ScoreMore autostart | — | `mini-bowling.sh scoremore autostart disable` |
+| `scoremore autostart status` | Show whether autostart is configured | — | `mini-bowling.sh scoremore autostart status` |
 | `scoremore logs` | List/tail/dump ScoreMore application logs | `show` \| `tail` \| `dump` | `mini-bowling.sh scoremore logs tail` |
 | `pi status` | CPU temp, memory, disk, uptime | — | `mini-bowling.sh pi status` |
 | `pi update` | Run apt update + upgrade | — | `mini-bowling.sh pi update` |
@@ -243,12 +245,11 @@ Done.
 | `install setup` | Guided first-time setup wizard | — | `mini-bowling.sh install setup` |
 | `install create-dir` | Create required directories | — | `mini-bowling.sh install create-dir` |
 | `install cli` | Install arduino-cli | — | `mini-bowling.sh install cli` |
-| `install preflight` | Pre-install checks | — | `mini-bowling.sh install preflight` |
 | `script version` | Show version + check GitHub for updates | — | `mini-bowling.sh script version` |
 | `script update` | Update script from GitHub (syntax-checked) | — | `mini-bowling.sh script update` |
 | `system serial` | Arduino serial logging + console | `start\|stop\|status\|tail\|console` | `mini-bowling.sh system serial start` |
-| `system watchdog` | ScoreMore watchdog | `run\|enable\|disable\|status` | `mini-bowling.sh system watchdog enable` |
 | `system wait-for-network` | Wait for internet connectivity | `[N]` (default: 30) | `mini-bowling.sh system wait-for-network 60` |
+| `scoremore watchdog` | ScoreMore crash watchdog | `run\|enable\|disable\|status` | `mini-bowling.sh scoremore watchdog enable` |
 
 ## Usage Examples
 
@@ -302,8 +303,9 @@ mini-bowling.sh scoremore history
 mini-bowling.sh scoremore history use 1.7.0
 mini-bowling.sh scoremore history clean
 mini-bowling.sh scoremore rollback
-mini-bowling.sh scoremore autostart
-mini-bowling.sh scoremore remove-autostart
+mini-bowling.sh scoremore autostart enable
+mini-bowling.sh scoremore autostart disable
+mini-bowling.sh scoremore autostart status
 mini-bowling.sh scoremore logs tail
 
 # ── Serial & monitoring ───────────────────────────────────────────────────────
@@ -320,10 +322,10 @@ mini-bowling.sh system tail-all
 
 # ── Watchdog ──────────────────────────────────────────────────────────────────
 
-mini-bowling.sh system watchdog run
-mini-bowling.sh system watchdog enable
-mini-bowling.sh system watchdog disable
-mini-bowling.sh system watchdog status
+mini-bowling.sh scoremore watchdog run
+mini-bowling.sh scoremore watchdog enable
+mini-bowling.sh scoremore watchdog disable
+mini-bowling.sh scoremore watchdog status
 
 # ── System & Pi ───────────────────────────────────────────────────────────────
 
@@ -458,10 +460,10 @@ The active X display is auto-detected at launch — `$DISPLAY` from environment 
 ## ScoreMore Watchdog
 
 ```bash
-mini-bowling.sh system watchdog run      # check once and restart if needed
-mini-bowling.sh system watchdog enable   # check every 5 minutes via cron
-mini-bowling.sh system watchdog disable
-mini-bowling.sh system watchdog status
+mini-bowling.sh scoremore watchdog run      # check once and restart if needed
+mini-bowling.sh scoremore watchdog enable   # check every 5 minutes via cron
+mini-bowling.sh scoremore watchdog disable
+mini-bowling.sh scoremore watchdog status
 ```
 
 The watchdog checks for a deploy lock before restarting — if a deploy is actively running, it skips the restart and exits cleanly. It also restarts serial logging if the Arduino was unplugged and the monitor process died.
@@ -519,7 +521,7 @@ mini-bowling.sh system serial stop     # stop
 mini-bowling.sh system serial console  # interactive serial monitor
 ```
 
-Serial logs auto-rotate at 10MB. The console is blocked if serial logging is active — both use the same port. After every `sketch upload` or `deploy`, serial logging stops before upload and restarts after.
+Serial logs auto-rotate at 10MB. The console is blocked if serial logging is active — both use the same port. After every `code sketch upload` or `deploy`, serial logging stops before upload and restarts after.
 
 ## Raspberry Pi Management
 
@@ -578,16 +580,31 @@ The last 10 backups are kept automatically.
 
 ```bash
 mini-bowling.sh <TAB>
-→  status  info  version  deploy  sketch  branch  scoremore  pi  logs  system
+→  status  info  version  deploy  code  scoremore  pi  logs  system  install  script
+
+mini-bowling.sh code <TAB>
+→  sketch  branch
 
 mini-bowling.sh code sketch <TAB>
 →  upload  list  test  rollback
 
+mini-bowling.sh code branch <TAB>
+→  list  checkout  switch  update  check
+
+mini-bowling.sh scoremore <TAB>
+→  start  stop  restart  download  version  check-update  history  rollback  autostart  logs  watchdog
+
+mini-bowling.sh scoremore autostart <TAB>
+→  enable  disable  status
+
+mini-bowling.sh scoremore watchdog <TAB>
+→  run  enable  disable  status
+
 mini-bowling.sh system <TAB>
-→  doctor  preflight  backup  repair  cleanup  ports  tail-all  serial  watchdog  wait-for-network
+→  doctor  preflight  backup  repair  cleanup  ports  tail-all  serial  wait-for-network
 
 mini-bowling.sh install <TAB>
-→  setup  create-dir  cli  preflight
+→  setup  create-dir  cli
 
 mini-bowling.sh script <TAB>
 →  version  update
@@ -644,6 +661,27 @@ mini-bowling.sh scoremore logs tail      # ScoreMore application logs
 
 ## Changelog
 
+### v3.0.0
+
+**Command structure**
+- `scoremore watchdog` replaces `system watchdog` — watchdog is a ScoreMore concern, not a system concern
+- `scoremore autostart enable/disable/status` replaces the old `scoremore autostart` / `scoremore remove-autostart` pair
+- `code compile` removed — use `code sketch test` instead (same behaviour)
+- `code pull` removed — use `code branch switch` or `code branch update` instead
+- `install preflight` removed — use `system preflight` instead (one canonical path)
+
+**Bug fixes**
+- `system serial` commands crashed silently due to a literal `\n` corruption in the dispatch case arm
+- `setup_watchdog` used `mini-bowling` (without `.sh`) when building the cron command, producing an invalid entry
+- AppImage verification in `scoremore download` had dead code (`; exit 0` forced the launch test to always pass, so corrupt downloads were never caught)
+- Bare `git pull` in `code branch update` could fail in detached HEAD or with no tracking branch — now explicit `git pull origin <branch>`
+
+**Improvements**
+- `code sketch upload` on the current branch no longer does unnecessary stash/fetch/checkout/restore
+- All user-facing command references in help text and die messages updated to current command syntax
+
+---
+
 ### v2.0.0
 Major overhaul from the original v1.0.0 release.
 
@@ -652,7 +690,7 @@ Major overhaul from the original v1.0.0 release.
 - `status`, `info`, `version` remain at top level for quick access
 - `install` group (top-level): `setup`, `create-dir`, `cli`, `preflight`
 - `script` group (top-level): `version`, `update` (renamed from `update-script`)
-- `system serial` and `system watchdog` subgroups
+- `system serial` subgroup; `scoremore watchdog` subgroup
 - `pi vnc` subgroup for all VNC management
 - `deploy schedule` / `deploy unschedule` instead of separate `schedule-deploy` / `unschedule-deploy`
 
@@ -685,7 +723,7 @@ Major overhaul from the original v1.0.0 release.
 - `pi reboot`/`pi shutdown` check sudo upfront
 - `branch checkout` / `branch switch` names stash and restores on interrupt
 - `deploy schedule` warns if script not in cron-accessible PATH
-- `system install setup` checks URL reachability before git clone
+- `install setup` checks URL reachability before git clone
 - `system script update` validates syntax before installing, resets clone before pull
 
 **Bug fixes**
@@ -700,7 +738,7 @@ Major overhaul from the original v1.0.0 release.
 
 | Variable | Default | Description |
 |---|---|---|
-| `SCRIPT_VERSION` | `2.0.0` | Script version — bump when deploying updates |
+| `SCRIPT_VERSION` | `3.0.0` | Script version — bump when deploying updates |
 | `DEFAULT_GIT_BRANCH` | `main` | Branch used by `branch update` and `deploy` |
 | `PROJECT_DIR` | `~/Documents/Bowling/Arduino/mini-bowling` | Arduino sketch root (override with `$MINI_BOWLING_DIR`) |
 | `DEFAULT_PORT` | `/dev/ttyACM0` | Arduino serial port (override with `$PORT` at runtime) |

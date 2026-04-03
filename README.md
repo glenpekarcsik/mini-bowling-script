@@ -762,6 +762,34 @@ mini-bowling.sh pi disk                  # How full is the disk?
 
 ## Changelog
 
+### v4.6.0
+
+New commands:
+
+- `system check` — quick "ready to bowl?" check: green if everything is OK, red with action hints if not. Covers arduino-cli, project repo, ScoreMore AppImage, ScoreMore running, Arduino sketch up-to-date, serial port detected, watchdog cron, and disk space.
+- `code status` — both git repos (script + Arduino project) at a glance: branch, clean/dirty, commits ahead/behind origin, and Arduino board upload status.
+- `pi cpu` — CPU load averages and per-core usage bar graph. `pi cpu --watch [N]` refreshes live every N seconds (default 3).
+- `help [topic]` — full command reference or per-command detail with examples (`help deploy`, `help code`, `help pi`, etc.).
+- Running `mini-bowling.sh` with no arguments now shows an interactive numbered menu instead of a wall-of-text help block.
+- Tab completion updated: `help`, `pi cpu`, `code status`, `system check`.
+
+---
+
+### v4.5.0
+
+**New commands**
+
+- `code config` — opens `config-tool/index.html` from the Arduino project in the Pi's default browser (uses same DISPLAY detection as ScoreMore).
+
+**Enhancements**
+
+- `install setup` now copies the script to `/usr/bin/mini-bowling.sh` and installs the tab completion file automatically as part of the setup wizard (Step 5).
+- Setup wizard is fully idempotent — each of the 9 steps checks whether the item is already installed/configured and skips or verifies rather than re-doing work.
+- Step 3 now auto-clones `https://github.com/mini-bowling/mini-bowling.git` if the Arduino project directory is missing or empty.
+- Added `PROJECT_REPO` constant for the Arduino project git URL.
+
+---
+
 ### v4.4.0
 
 **New commands**

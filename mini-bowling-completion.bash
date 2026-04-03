@@ -11,7 +11,7 @@ _mini_bowling_complete() {
     local cur prev words cword
     _init_completion || return
 
-    local top_cmds="status info version deploy code scoremore pi logs system install script"
+    local top_cmds="status info version deploy code scoremore pi logs system install script help"
 
     # Word positions
     local cmd="${words[1]:-}"
@@ -78,13 +78,13 @@ _mini_bowling_complete() {
         case "$cmd" in
             status)   COMPREPLY=( $(compgen -W "--watch -w" -- "$cur") ) ;;
             deploy)   COMPREPLY=( $(compgen -W "--dry-run --no-kill --branch schedule unschedule history" -- "$cur") ) ;;
-            code)     COMPREPLY=( $(compgen -W "sketch branch compile pull switch console config" -- "$cur") ) ;;
+            code)     COMPREPLY=( $(compgen -W "status sketch branch compile pull switch console config" -- "$cur") ) ;;
             install)  COMPREPLY=( $(compgen -W "setup create-dir cli" -- "$cur") ) ;;
             script)   COMPREPLY=( $(compgen -W "version update" -- "$cur") ) ;;
             scoremore) COMPREPLY=( $(compgen -W "start stop restart download version check-update history rollback autostart remove-autostart logs watchdog" -- "$cur") ) ;;
-            pi)       COMPREPLY=( $(compgen -W "status sysinfo temp disk update reboot shutdown wifi vnc" -- "$cur") ) ;;
+            pi)       COMPREPLY=( $(compgen -W "status sysinfo cpu temp disk update reboot shutdown wifi vnc" -- "$cur") ) ;;
             logs)     COMPREPLY=( $(compgen -W "follow dump tail clean" -- "$cur") ) ;;
-            system)   COMPREPLY=( $(compgen -W "health cron doctor preflight backup repair cleanup ports tail-all wait-for-network serial watchdog" -- "$cur") ) ;;
+            system)   COMPREPLY=( $(compgen -W "check health cron doctor preflight backup repair cleanup ports tail-all wait-for-network serial watchdog" -- "$cur") ) ;;
         esac
         return 0
     fi
@@ -134,7 +134,10 @@ _mini_bowling_complete() {
                 case "$sub" in
                     vnc)  COMPREPLY=( $(compgen -W "status start stop enable disable" -- "$cur") ) ;;
                     temp) COMPREPLY=( $(compgen -W "--watch" -- "$cur") ) ;;
+                    cpu)  COMPREPLY=( $(compgen -W "--watch" -- "$cur") ) ;;
                 esac ;;
+            help)
+                COMPREPLY=( $(compgen -W "deploy code scoremore pi system install logs" -- "$cur") ) ;;
             logs)
                 case "$sub" in
                     dump|tail)  COMPREPLY=( $(compgen -W "--date" -- "$cur") ) ;;

@@ -19,7 +19,7 @@ IFS=$'\n\t'
 # ------------------------------------------------
 
 readonly DEFAULT_GIT_BRANCH="main"
-readonly SCRIPT_VERSION="4.5.0"
+readonly SCRIPT_VERSION="4.6.0"
 readonly SCRIPT_REPO="https://github.com/glenpekarcsik/mini-bowling-script.git"
 readonly PROJECT_REPO="https://github.com/mini-bowling/mini-bowling.git"
 readonly PROJECT_DIR="${MINI_BOWLING_DIR:-$HOME/Documents/Bowling/Arduino/mini-bowling}"
@@ -914,6 +914,89 @@ cmd_config_tool() {
     nohup "$browser" "$config_file" >/dev/null 2>&1 &
     disown
     echo -e "${GREEN}✓ Config tool opened${NC}"
+}
+
+cmd_code_status() {
+    echo "=== Code Repository Status ==="
+    echo
+
+    _repo_summary() {
+        local label="$1" dir="$2"
+        if [[ ! -d "$dir/.git" ]]; then
+            echo -e "  ${label}: ${YELLOW}not a git repo${NC}  ($dir)"
+            return
+        fi
+
+        local branch dirty_flag remote_status
+        branch=$(git -C "$dir" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "unknown")
+        local head
+        head=$(git -C "$dir" rev-parse --short HEAD 2>/dev/null || echo "?")
+        local subject
+        subject=$(git -C "$dir" log -1 --format='%s' 2>/dev/null || echo "")
+
+        if ! git -C "$dir" diff --quiet 2>/dev/null || ! git -C "$dir" diff --cached --quiet 2>/dev/null; then
+            dirty_flag="${YELLOW} (dirty)${NC}"
+        else
+            dirty_flag=""
+        fi
+
+        # Sync with remote
+        git -C "$dir" fetch --quiet 2>/dev/null || true
+        local ahead behind
+        ahead=$(git -C "$dir" rev-list "origin/${branch}..HEAD" --count 2>/dev/null || echo "?")
+        behind=$(git -C "$dir" rev-list "HEAD..origin/${branch}" --count 2>/dev/null || echo "?")
+
+        if [[ "$ahead" == "0" && "$behind" == "0" ]]; then
+            remote_status="${GREEN}✓ up to date${NC}"
+        elif [[ "$ahead" != "0" && "$behind" == "0" ]]; then
+            remote_status="${YELLOW}${ahead} commit(s) ahead of origin${NC}"
+        elif [[ "$ahead" == "0" && "$behind" != "0" ]]; then
+            remote_status="${YELLOW}${behind} commit(s) behind origin${NC} — run: pull"
+        else
+            remote_status="${RED}diverged (${ahead} ahead / ${behind} behind)${NC}"
+        fi
+
+        echo -e "  ${label}"
+        echo -e "    Branch : $branch${dirty_flag}"
+        echo    "    HEAD   : $head${subject:+  — $subject}"
+        echo -e "    Remote : $remote_status"
+    }
+
+    # Script repo (if installed as git clone)
+    local script_dir
+    script_dir=$(dirname "$(realpath "${BASH_SOURCE[0]}" 2>/dev/null || echo "$0")")
+    if [[ -d "$script_dir/.git" ]]; then
+        _repo_summary "Script repo  ($script_dir)" "$script_dir"
+    else
+        echo "  Script repo: not a git clone (installed as single file)"
+    fi
+    echo
+
+    # Arduino project repo
+    _repo_summary "Arduino repo ($PROJECT_DIR)" "$PROJECT_DIR"
+    echo
+
+    # Arduino sketch info
+    if [[ -f "$ARDUINO_STATUS_FILE" ]]; then
+        local sketch time commit branch
+        sketch=$(sed -n '1p' "$ARDUINO_STATUS_FILE")
+        time=$(sed -n '2p'   "$ARDUINO_STATUS_FILE")
+        commit=$(sed -n '3p' "$ARDUINO_STATUS_FILE")
+        branch=$(sed -n '5p' "$ARDUINO_STATUS_FILE")
+        local current_branch head_commit
+        current_branch=$(git -C "$PROJECT_DIR" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "unknown")
+        head_commit=$(git -C "$PROJECT_DIR" rev-parse --short HEAD 2>/dev/null || echo "")
+        echo "  Arduino board"
+        echo "    Sketch  : $sketch  (uploaded $time)"
+        echo "    Commit  : $commit  (branch: ${branch:-unknown})"
+        if [[ -n "$head_commit" && "$head_commit" == "$commit" && "$branch" == "$current_branch" ]]; then
+            echo -e "    Status  : ${GREEN}✓ up to date${NC}"
+        else
+            echo -e "    Status  : ${YELLOW}behind repo HEAD — run: mini-bowling.sh deploy${NC}"
+        fi
+    else
+        echo "  Arduino board: no upload on record yet"
+    fi
 }
 
 cmd_update() {
@@ -1919,6 +2002,98 @@ backup_config() {
     local total_backups
     total_backups=$(find "$backup_dir" -name "mini-bowling-backup-*.tar.gz" 2>/dev/null | wc -l)
     echo "  Total backups kept: $total_backups / 10"
+}
+
+system_check() {
+    # Quick "ready to bowl?" check — green or red, no verbose output
+    local fail=0 warn=0
+    local lines=()
+
+    _ok()   { lines+=("  ${GREEN}✓${NC}  $*"); }
+    _fail() { lines+=("  ${RED}✗${NC}  $*"); (( fail++ )); }
+    _warn() { lines+=("  ${YELLOW}!${NC}  $*"); (( warn++ )); }
+
+    # 1. Arduino-cli
+    command -v arduino-cli >/dev/null 2>&1 && _ok "arduino-cli installed" || _fail "arduino-cli NOT found — run: install cli"
+
+    # 2. Project directory / git repo
+    if [[ -d "$PROJECT_DIR/.git" ]]; then
+        _ok "Arduino project cloned ($PROJECT_DIR)"
+    elif [[ -d "$PROJECT_DIR" ]]; then
+        _fail "Arduino project directory exists but is not a git repo — run: install setup"
+    else
+        _fail "Arduino project directory missing — run: install setup"
+    fi
+
+    # 3. ScoreMore AppImage
+    if [[ -L "$SYMLINK_PATH" && -f "$SYMLINK_PATH" ]]; then
+        _ok "ScoreMore AppImage present"
+    else
+        _warn "No ScoreMore AppImage at $SYMLINK_PATH — run: scoremore download latest"
+    fi
+
+    # 4. ScoreMore running
+    if pgrep -f "ScoreMore.*AppImage" >/dev/null 2>&1; then
+        _ok "ScoreMore is running"
+    else
+        _warn "ScoreMore is NOT running — run: scoremore start"
+    fi
+
+    # 5. Sketch uploaded
+    if [[ -f "$ARDUINO_STATUS_FILE" ]]; then
+        local head_commit
+        head_commit=$(git -C "$PROJECT_DIR" rev-parse --short HEAD 2>/dev/null || echo "")
+        local uploaded_commit; uploaded_commit=$(sed -n '3p' "$ARDUINO_STATUS_FILE")
+        if [[ "$head_commit" == "$uploaded_commit" ]]; then
+            _ok "Arduino up to date with repo HEAD"
+        else
+            _warn "Arduino behind repo HEAD — run: deploy"
+        fi
+    else
+        _warn "No sketch uploaded yet — run: deploy"
+    fi
+
+    # 6. Arduino serial port
+    if ls /dev/ttyACM* /dev/ttyUSB* 2>/dev/null | grep -q .; then
+        _ok "Arduino serial port detected"
+    else
+        _warn "No Arduino serial port found — check USB cable"
+    fi
+
+    # 7. Watchdog
+    if crontab -l 2>/dev/null | grep -q "# mini-bowling watchdog"; then
+        _ok "Watchdog cron active"
+    else
+        _warn "Watchdog cron not installed — run: scoremore watchdog enable"
+    fi
+
+    # 8. Disk space
+    local disk_pct_num
+    disk_pct_num=$(df / 2>/dev/null | awk 'NR==2{gsub(/%/,"",$5); print $5}')
+    if (( disk_pct_num >= 90 )); then
+        _fail "Disk / is ${disk_pct_num}% full — run: system cleanup"
+    elif (( disk_pct_num >= 75 )); then
+        _warn "Disk / is ${disk_pct_num}% full"
+    else
+        _ok "Disk / is ${disk_pct_num}% full"
+    fi
+
+    # Summary
+    echo "=== System Check ==="
+    echo
+    for line in "${lines[@]}"; do
+        echo -e "$line"
+    done
+    echo
+
+    if (( fail > 0 )); then
+        echo -e "${RED}✗ NOT ready — $fail issue(s) need attention${NC}"
+        return 1
+    elif (( warn > 0 )); then
+        echo -e "${YELLOW}~ Ready with $warn warning(s)${NC}"
+    else
+        echo -e "${GREEN}✓ Ready to bowl!${NC}"
+    fi
 }
 
 system_health() {
@@ -3294,6 +3469,96 @@ pi_disk() {
     fi
 }
 
+pi_cpu() {
+    local interval="${1:-}"
+    local watch=false
+    [[ "$interval" == "--watch" ]] && watch=true && interval="${2:-3}"
+    [[ -z "$interval" ]] && interval=3
+
+    _read_cpu() {
+        # Load averages
+        local load1 load5 load15 procs
+        read -r load1 load5 load15 procs _ < /proc/loadavg 2>/dev/null || load1="-" load5="-" load15="-" procs="-"
+        local ncpu
+        ncpu=$(nproc 2>/dev/null || echo 1)
+
+        # Per-core usage (sample two /proc/stat snapshots)
+        local -a cpu_pct=()
+        local line cores1=() cores2=() labels=()
+        # First snapshot
+        while IFS= read -r line; do
+            [[ "$line" =~ ^cpu[0-9] ]] || continue
+            local lbl u n s i wa hi si st
+            read -r lbl u n s i wa hi si st _ <<< "$line"
+            cores1+=("$lbl $((u+n+s+wa+hi+si+st)) $i")
+            labels+=("$lbl")
+        done < /proc/stat
+        sleep 0.5
+        # Second snapshot
+        local idx=0
+        while IFS= read -r line; do
+            [[ "$line" =~ ^cpu[0-9] ]] || continue
+            local lbl u n s i wa hi si st
+            read -r lbl u n s i wa hi si st _ <<< "$line"
+            local total2=$((u+n+s+wa+hi+si+st))
+            local idle2=$i
+            local prev="${cores1[$idx]:-}"
+            local prev_total; prev_total=$(echo "$prev" | awk '{print $2}')
+            local prev_idle;  prev_idle=$(echo "$prev"  | awk '{print $3}')
+            local dtotal=$(( total2 - prev_total ))
+            local didle=$(( idle2 - prev_idle ))
+            local pct=0
+            (( dtotal > 0 )) && pct=$(( (dtotal - didle) * 100 / dtotal ))
+            cpu_pct+=("$pct")
+            (( idx++ ))
+        done < /proc/stat
+
+        # Color by load vs ncpu
+        local color_load="$GREEN"
+        local load_val; load_val=$(echo "$load1" | awk '{printf "%.2f", $1}')
+        (( $(echo "$load1 >= $ncpu" | bc -l 2>/dev/null || echo 0) )) && color_load="$RED"
+        (( $(echo "$load1 >= $ncpu * 0.75" | bc -l 2>/dev/null || echo 0) )) && color_load="$YELLOW"
+
+        echo -e "Load avg : ${color_load}${load1} ${load5} ${load15}${NC}  (${ncpu} core(s))"
+        echo "Processes: $procs"
+        echo
+
+        local i=0
+        for pct in "${cpu_pct[@]}"; do
+            local bar="" col="$GREEN"
+            (( pct >= 50 )) && col="$YELLOW"
+            (( pct >= 85 )) && col="$RED"
+            local bars=$(( pct / 5 ))
+            for (( b=0; b<20; b++ )); do
+                if (( b < bars )); then bar+="#"; else bar+="-"; fi
+            done
+            printf "  core%-2d  [${col}%-20s${NC}] %3d%%\n" "$i" "$bar" "$pct"
+            (( i++ ))
+        done
+
+        # Top processes by CPU
+        echo
+        echo "Top processes:"
+        ps -eo pid,pcpu,comm --sort=-pcpu 2>/dev/null | head -6 | \
+            awk 'NR==1{printf "  %-8s %6s  %s\n",$1,$2,$3; next} {printf "  %-8s %5s%%  %s\n",$1,$2,$3}'
+    }
+
+    if $watch; then
+        echo "CPU monitor — refreshing every ${interval}s  (Ctrl+C to stop)"
+        echo
+        while true; do
+            tput cup 0 0 2>/dev/null || printf '\033[H'
+            echo "=== CPU Monitor — $(date '+%H:%M:%S') ==="; echo
+            _read_cpu
+            sleep "$interval"
+        done
+    else
+        echo "=== CPU Usage ==="
+        echo
+        _read_cpu
+    fi
+}
+
 pi_update() {
     echo -e "${YELLOW}Updating Raspberry Pi OS packages...${NC}"
     sudo apt-get update || die "apt update failed"
@@ -3802,32 +4067,33 @@ with_git_branch() {
 #  Main
 # ------------------------------------------------
 
-main() {
-    [[ $# -eq 0 ]] && {
-        cat <<'EOF'
+_show_full_help() {
+    cat <<'EOF'
 Usage: mini-bowling.sh <command> [subcommand] [options]
 
-  status                Show full system status
+  system check          Quick "ready to bowl?" check — green/red result
+  status                Full system status
   status --watch [N]    Auto-refresh every N seconds (default 5)
   info                  Dense single-screen summary (hardware + app + Pi)
   version               Show version and check GitHub for updates
 
   deploy                Pull latest → upload Everything → restart ScoreMore
   deploy --dry-run      Preview deploy without making changes
-  deploy --no-kill      Deploy without killing ScoreMore before upload (still starts after)
+  deploy --no-kill      Deploy without killing ScoreMore before upload
   deploy --branch <n>   Deploy from a specific branch
   deploy schedule HH:MM Schedule daily deploy at given time
   deploy unschedule     Remove scheduled deploy
   deploy history [N]    Show last N deploys from logs (default: 20)
 
   code                  Arduino code management
+    code status                    Both git repos + Arduino board at a glance
     code sketch upload [--Name]    Compile + upload sketch (default: Everything)
-    code sketch upload --no-kill   Upload without killing ScoreMore first (still starts after)
+    code sketch upload --no-kill   Upload without killing ScoreMore first
     code sketch upload --branch <n>  Upload from a specific branch
     code sketch list               List available sketch folders
     code sketch test [--Name]      Compile only — no upload (default: Everything)
     code sketch rollback [N]       Roll back N git commits and re-upload (default: 1)
-    code sketch info               Show sketch, branch, and commit currently on Arduino
+    code sketch info               Show sketch, branch, and commit on Arduino
     code compile [--Name]          Compile sketch without uploading (default: Everything)
     code pull                      Pull latest for current branch
     code pull <branch>             Switch to branch and pull latest
@@ -3844,7 +4110,7 @@ Usage: mini-bowling.sh <command> [subcommand] [options]
   scoremore             ScoreMore application management
     scoremore start                Launch ScoreMore
     scoremore stop                 Kill ScoreMore
-    scoremore restart              Kill and relaunch ScoreMore (quick fix for freezes)
+    scoremore restart              Kill and relaunch ScoreMore
     scoremore download <ver>       Download version (e.g. 1.8.0 or 'latest')
     scoremore version              Show active version info
     scoremore check-update         Check scoremorebowling.com for newer version
@@ -3852,14 +4118,13 @@ Usage: mini-bowling.sh <command> [subcommand] [options]
     scoremore history use <ver>    Switch to a specific downloaded version
     scoremore history clean        Remove all but active version
     scoremore rollback             Switch to previous downloaded version
-    scoremore autostart            Enable ScoreMore autostart on login (alias: autostart enable)
     scoremore autostart enable     Enable ScoreMore autostart on login
     scoremore autostart disable    Disable ScoreMore autostart
     scoremore autostart status     Show whether autostart is configured
     scoremore logs                 List ScoreMore application logs
     scoremore logs tail            Live tail ScoreMore logs
     scoremore logs dump            Full output of latest ScoreMore log
-    scoremore watchdog run         Run watchdog check now (start ScoreMore if not running)
+    scoremore watchdog run         Run watchdog check now
     scoremore watchdog enable      Install cron job to run watchdog every 5 min
     scoremore watchdog disable     Remove watchdog cron job
     scoremore watchdog status      Show whether watchdog cron is installed
@@ -3867,18 +4132,17 @@ Usage: mini-bowling.sh <command> [subcommand] [options]
   pi                    Raspberry Pi management
     pi status                      CPU temp, memory, disk, uptime, architecture, OS
     pi sysinfo                     Full system identity (hostnamectl)
+    pi cpu                         Live CPU load average and per-core usage
+    pi cpu --watch [N]             Continuously refresh CPU stats (default: 3s)
     pi temp                        CPU temperature (one-shot)
-    pi temp --watch [N]            CPU temperature live monitor (default: 5s interval)
+    pi temp --watch [N]            CPU temperature live monitor (default: 5s)
     pi disk                        Disk usage by key directory
     pi update                      Run apt update + upgrade
-    pi reboot                      Reboot (5-second countdown, checks sudo first)
-    pi shutdown                    Shut down (5-second countdown, checks sudo first)
+    pi reboot                      Reboot (5-second countdown)
+    pi shutdown                    Shut down (5-second countdown)
     pi wifi                        Interface, IP, SSID, signal, internet reachability
     pi vnc status                  VNC installation, service state, connect address
-    pi vnc start                   Start VNC service
-    pi vnc stop                    Stop VNC service
-    pi vnc enable                  Enable VNC autostart on boot
-    pi vnc disable                 Disable VNC autostart on boot
+    pi vnc start|stop|enable|disable
 
   logs                  Log file management
     logs                           List log files with sizes
@@ -3891,7 +4155,7 @@ Usage: mini-bowling.sh <command> [subcommand] [options]
     logs clean --keep N            Keep last N days, delete older
 
   install               First-time setup and installation
-    install setup                  Guided first-time setup wizard
+    install setup                  Guided first-time setup wizard (idempotent)
     install create-dir             Create required directories
     install cli                    Install arduino-cli
 
@@ -3900,127 +4164,252 @@ Usage: mini-bowling.sh <command> [subcommand] [options]
     script update                  Update script from GitHub (syntax-checked)
 
   system                System administration
-    system health                  Full system health summary (quick overview)
+    system check                   Quick ready-to-bowl check (green/red)
+    system health                  Full system health dashboard
     system cron                    Show all mini-bowling cron jobs
     system doctor                  Check dependencies, directories, dialout group
-    system preflight               9 pre-deploy checks (--quick skips network)
-    system backup                  Backup sketches + config (--include-appimage)
+    system preflight [--quick]     Pre-deploy checks
+    system backup [--include-appimage]  Backup sketches + config
     system repair                  Fix common broken states automatically
     system cleanup                 Remove old AppImages, build caches, old logs
     system ports                   List serial devices with USB info
     system tail-all [N]            Interleave command + Arduino serial logs (live)
     system wait-for-network [N]    Wait up to N seconds for network (default: 30)
-    system serial start            Start background serial logging
-    system serial stop             Stop background serial logging
-    system serial status           Show serial logging status
-    system serial tail             Live tail of serial output
-    system serial console          Open interactive serial console (also: code console)
+    system serial start|stop|status|tail|console
 
-Examples:
-
-  ── Daily ──────────────────────────────────────────────────────────
-  mini-bowling.sh status
-  mini-bowling.sh status --watch
-  mini-bowling.sh info
-  mini-bowling.sh system health
-  mini-bowling.sh deploy
-  mini-bowling.sh deploy --dry-run
-  mini-bowling.sh deploy history
-  mini-bowling.sh deploy schedule 02:30
-  mini-bowling.sh deploy unschedule
-
-  ── Code (sketch + branch) ─────────────────────────────────────────
-  mini-bowling.sh code sketch upload --Everything
-  mini-bowling.sh code sketch upload --Master_Test
-  mini-bowling.sh code sketch upload --Master_Test --branch feature/new-sensor
-  mini-bowling.sh code sketch list
-  mini-bowling.sh code sketch test --Everything
-  mini-bowling.sh code sketch rollback
-  mini-bowling.sh code sketch info
-  mini-bowling.sh code compile --Everything
-  mini-bowling.sh code compile --Master_Test
-  mini-bowling.sh code pull
-  mini-bowling.sh code pull feature/new-sensor
-  mini-bowling.sh code switch feature/new-sensor
-  mini-bowling.sh code console
-  mini-bowling.sh code config
-  mini-bowling.sh code branch list
-  mini-bowling.sh code branch switch feature/new-sensor
-  mini-bowling.sh code branch checkout feature/new-sensor --Master_Test
-  mini-bowling.sh code branch update
-  mini-bowling.sh code branch check
-
-  ── ScoreMore ──────────────────────────────────────────────────────
-  mini-bowling.sh scoremore restart
-  mini-bowling.sh scoremore download latest
-  mini-bowling.sh scoremore download 1.8.0
-  mini-bowling.sh scoremore check-update
-  mini-bowling.sh scoremore version
-  mini-bowling.sh scoremore history
-  mini-bowling.sh scoremore history use 1.7.0
-  mini-bowling.sh scoremore rollback
-  mini-bowling.sh scoremore autostart
-  mini-bowling.sh scoremore logs tail
-
-  ── Config tool ────────────────────────────────────────────────────
-  mini-bowling.sh code config
-
-  ── Serial & monitoring ────────────────────────────────────────────
-  mini-bowling.sh system serial start
-  mini-bowling.sh system serial stop
-  mini-bowling.sh system serial tail
-  mini-bowling.sh system serial console
-  mini-bowling.sh code console
-  mini-bowling.sh logs follow
-  mini-bowling.sh logs tail 100
-  mini-bowling.sh logs dump
-  mini-bowling.sh logs clean --keep 7
-  mini-bowling.sh system tail-all
-
-  ── Watchdog ───────────────────────────────────────────────────────
-  mini-bowling.sh scoremore watchdog run
-  mini-bowling.sh scoremore watchdog enable
-  mini-bowling.sh scoremore watchdog disable
-  mini-bowling.sh scoremore watchdog status
-
-  ── System ─────────────────────────────────────────────────────────
-  mini-bowling.sh system health
-  mini-bowling.sh system cron
-  mini-bowling.sh system doctor
-  mini-bowling.sh system preflight
-  mini-bowling.sh system preflight --quick
-  mini-bowling.sh system repair
-  mini-bowling.sh system backup
-  mini-bowling.sh system backup --include-appimage
-  mini-bowling.sh system cleanup
-  mini-bowling.sh system ports
-
-  ── Install & script ───────────────────────────────────────────────
-  mini-bowling.sh install setup
-  mini-bowling.sh install create-dir
-  mini-bowling.sh install cli
-  mini-bowling.sh script version
-  mini-bowling.sh script update
-
-  ── Pi ─────────────────────────────────────────────────────────────
-  mini-bowling.sh pi status
-  mini-bowling.sh pi sysinfo
-  mini-bowling.sh pi temp
-  mini-bowling.sh pi temp --watch
-  mini-bowling.sh pi disk
-  mini-bowling.sh pi update
-  mini-bowling.sh pi reboot
-  mini-bowling.sh pi shutdown
-  mini-bowling.sh pi wifi
-  mini-bowling.sh pi vnc status
-  mini-bowling.sh pi vnc start
-  mini-bowling.sh pi vnc stop
-  mini-bowling.sh pi vnc enable
-  mini-bowling.sh pi vnc disable
+  help [command]        Show full help or per-command detail
 
 EOF
-        exit 0
-    }
+}
+
+_show_command_help() {
+    local topic="${1:-}"
+    case "$topic" in
+        deploy)
+            cat <<'EOF'
+deploy — Pull latest code, upload to Arduino, restart ScoreMore
+
+  mini-bowling.sh deploy
+  mini-bowling.sh deploy --dry-run
+  mini-bowling.sh deploy --no-kill
+  mini-bowling.sh deploy --branch <name>
+  mini-bowling.sh deploy schedule HH:MM
+  mini-bowling.sh deploy unschedule
+  mini-bowling.sh deploy history [N]
+
+Options:
+  --dry-run        Show what would happen without making changes
+  --no-kill        Do not stop ScoreMore before uploading (still starts it after)
+  --branch <name>  Temporarily switch to a branch before deploying
+
+Scheduling:
+  deploy schedule 02:30   — add a cron job to run deploy daily at 02:30
+  deploy unschedule       — remove the scheduled job
+  deploy history          — show last 20 deploys from log files
+EOF
+            ;;
+        code)
+            cat <<'EOF'
+code — Arduino code management
+
+  code status           Both git repos + Arduino board at a glance
+  code sketch upload    Compile + upload to Arduino (default: Everything sketch)
+  code sketch list      List sketch folders in project directory
+  code sketch test      Compile only, no upload
+  code sketch rollback  Roll back N git commits and re-upload
+  code sketch info      Show what is currently on the Arduino
+  code compile          Compile without uploading
+  code pull             Pull latest code (optionally switch branch first)
+  code switch <branch>  Permanently switch git branch
+  code console          Open interactive serial console (read Arduino output)
+  code config           Open config-tool/index.html in browser (configure Arduino code)
+  code branch list|checkout|switch|update|check
+
+Tip: use 'code sketch info' to verify the Arduino is running the expected code.
+Tip: use 'code status' to see both git repos and the Arduino board together.
+EOF
+            ;;
+        scoremore)
+            cat <<'EOF'
+scoremore — ScoreMore bowling application management
+
+  scoremore start|stop|restart
+  scoremore download latest|<version>
+  scoremore version
+  scoremore check-update
+  scoremore history [list|use <ver>|clean]
+  scoremore rollback
+  scoremore autostart enable|disable|status
+  scoremore logs [show|list|tail|dump]
+  scoremore watchdog run|enable|disable|status
+
+Tip: use 'scoremore watchdog enable' to auto-restart ScoreMore if it crashes.
+Tip: use 'scoremore autostart enable' to start ScoreMore on Pi login.
+EOF
+            ;;
+        pi)
+            cat <<'EOF'
+pi — Raspberry Pi monitoring and management
+
+  pi status             CPU temp, memory, disk, uptime, architecture, OS
+  pi sysinfo            Full hostnamectl identity
+  pi cpu                CPU load averages and per-core bar graph
+  pi cpu --watch [N]    Live refresh every N seconds (default 3)
+  pi temp               CPU temperature (one-shot)
+  pi temp --watch [N]   Live temp monitor every N seconds (default 5)
+  pi disk               Disk usage by key directory (project, ScoreMore, logs)
+  pi update             Run apt update + upgrade
+  pi reboot             Reboot with 5-second countdown
+  pi shutdown           Shut down with 5-second countdown
+  pi wifi               Wi-Fi interface, IP, SSID, signal, internet check
+  pi vnc status|start|stop|enable|disable
+
+Tip: use 'pi temp --watch' to monitor temperature during a long compile.
+EOF
+            ;;
+        system)
+            cat <<'EOF'
+system — System administration commands
+
+  system check          Quick "ready to bowl?" — green if everything is OK
+  system health         Full dashboard: deps, Pi vitals, ScoreMore, Arduino, cron
+  system cron           List mini-bowling cron jobs with descriptions
+  system doctor         Full dependency + dialout + directory check
+  system preflight      9-point pre-deploy verification (--quick skips network)
+  system backup         Archive sketches + config to ~/mini-bowling-backup/
+  system repair         Auto-fix common broken states
+  system cleanup        Remove old AppImages, build caches, old logs
+  system ports          List serial devices with USB vendor/product info
+  system tail-all [N]   Live interleaved view of command log + serial log
+  system wait-for-network [N]  Block until internet reachable (default 30s)
+  system serial start|stop|status|tail|console
+
+Tip: run 'system check' before a bowling event to verify everything is ready.
+Tip: run 'system preflight' before a deploy to catch issues early.
+EOF
+            ;;
+        install)
+            cat <<'EOF'
+install — First-time setup and installation
+
+  install setup         Guided setup wizard (9 steps, idempotent — safe to re-run)
+  install create-dir    Create required directories only
+  install cli           Download and install arduino-cli
+
+The setup wizard covers:
+  1. Required directories
+  2. arduino-cli installation
+  3. Arduino project (git clone or verify)
+  4. Board + library installation
+  5. Script installed to /usr/bin
+  6. ScoreMore autostart
+  7. ScoreMore download
+  8. Watchdog cron
+  9. Scheduled deploy
+
+Tip: re-running 'install setup' is safe — it skips steps already done.
+EOF
+            ;;
+        logs)
+            cat <<'EOF'
+logs — Log file management
+
+  logs                  List log files with sizes
+  logs follow           Live tail today's log file
+  logs dump             Print today's full log
+  logs dump --date YYYY-MM-DD   Print a specific day's log
+  logs tail [N]         Last N lines of today's log (default: 50)
+  logs tail N --date DATE       Last N lines of a specific day
+  logs clean            Delete all log files (confirms first)
+  logs clean --keep N   Keep last N days, delete older
+
+Log files are stored in: ~/Documents/Bowling/Logs/
+EOF
+            ;;
+        *)
+            echo "Available help topics:"
+            echo "  deploy  code  scoremore  pi  system  install  logs"
+            echo
+            echo "Usage: mini-bowling.sh help <topic>"
+            echo "   or: mini-bowling.sh  (no args) for interactive menu"
+            ;;
+    esac
+}
+
+main() {
+    if [[ $# -eq 0 ]]; then
+        # Interactive numbered menu — runs a command on selection
+        local _menu_items=(
+            "system check        — quick ready-to-bowl check"
+            "status              — full system status"
+            "info                — dense one-screen summary"
+            "system health       — detailed health dashboard"
+            "deploy              — pull + upload Everything + restart ScoreMore"
+            "deploy --dry-run    — preview deploy without changes"
+            "scoremore restart   — restart ScoreMore"
+            "scoremore start     — launch ScoreMore"
+            "scoremore stop      — stop ScoreMore"
+            "code sketch upload  — compile + upload Everything"
+            "code sketch info    — show sketch on Arduino vs repo HEAD"
+            "code status         — both git repos at a glance"
+            "code pull           — pull latest Arduino code"
+            "code console        — open interactive serial console"
+            "code config         — open Arduino config tool in browser"
+            "pi status           — CPU temp, memory, disk, uptime"
+            "pi cpu              — live CPU load and per-core usage"
+            "pi temp --watch     — live CPU temperature monitor"
+            "pi disk             — disk usage breakdown"
+            "pi update           — run apt update + upgrade"
+            "logs follow         — live tail today's log"
+            "system cron         — show mini-bowling cron jobs"
+            "system doctor       — check dependencies + dialout group"
+            "system preflight    — pre-deploy checks"
+            "scoremore watchdog enable  — install watchdog cron"
+            "install setup       — guided first-time setup wizard"
+            "script update       — update script from GitHub"
+            "help                — full command reference"
+        )
+
+        echo "mini-bowling.sh  v${SCRIPT_VERSION}"
+        echo
+        echo "What would you like to do?"
+        echo
+        local i=1
+        for item in "${_menu_items[@]}"; do
+            printf "  %2d)  %s\n" "$i" "$item"
+            (( i++ ))
+        done
+        echo
+        printf "Enter number (or press Enter to cancel): "
+        local choice
+        read -r choice </dev/tty
+
+        [[ -z "$choice" ]] && exit 0
+
+        if ! [[ "$choice" =~ ^[0-9]+$ ]] || (( choice < 1 || choice > ${#_menu_items[@]} )); then
+            echo "Invalid selection." >&2
+            exit 1
+        fi
+
+        local selected="${_menu_items[$(( choice - 1 ))]}"
+        # Extract command part (before the ' — ' separator)
+        local run_cmd
+        run_cmd=$(echo "$selected" | sed 's/  *— .*//')
+        run_cmd=$(echo "$run_cmd" | sed 's/^[[:space:]]*//')
+
+        echo
+        echo "Running: mini-bowling.sh $run_cmd"
+        echo
+
+        if [[ "$run_cmd" == "help" ]]; then
+            _show_full_help
+            exit 0
+        fi
+
+        # Re-invoke with the selected command
+        # shellcheck disable=SC2086
+        exec "$0" $run_cmd
+    fi
 
     local cmd="$1"
 
@@ -4031,13 +4420,13 @@ EOF
     # Everything else (deploy, code, scoremore download/start/stop, pi reboot, etc.) IS logged.
     local _log=true
     case "$cmd" in
-        status|info|version|logs)
+        status|info|version|logs|help)
             _log=false ;;
         system)
-            # system doctor/preflight/ports/tail-all/wait-for-network/health/cron are read-only
+            # system doctor/preflight/ports/tail-all/wait-for-network/health/cron/check are read-only
             # system backup/repair/cleanup DO modify state - log those
             case "${2:-}" in
-                health|cron|doctor|preflight|ports|tail-all|wait-for-network)
+                check|health|cron|doctor|preflight|ports|tail-all|wait-for-network)
                     _log=false ;;
             esac ;;
         scoremore)
@@ -4049,9 +4438,9 @@ EOF
                     [[ "${3:-}" == "status" ]] && _log=false ;;
             esac ;;
         pi)
-            # pi status/sysinfo/temp/disk/wifi are read-only; pi vnc status is read-only
+            # pi status/sysinfo/temp/disk/cpu/wifi are read-only; pi vnc status is read-only
             case "${2:-}" in
-                status|sysinfo|temp|disk|wifi)
+                status|sysinfo|temp|disk|cpu|wifi)
                     _log=false ;;
                 vnc)
                     [[ "${3:-}" == "status" ]] && _log=false ;;
@@ -4059,6 +4448,7 @@ EOF
         code)
             # code branch list/check are read-only; code sketch list/compile are read-only
             case "${2:-}" in
+                status) _log=false ;;
                 branch)
                     case "${3:-}" in
                         list|check) _log=false ;;
@@ -4138,6 +4528,15 @@ _dispatch() {
     }
 
     case "$cmd" in
+
+        # -- help (top-level) -------------------------------------------------
+        help)
+            if [[ -n "${1:-}" ]]; then
+                _show_command_help "$1"
+            else
+                _show_full_help
+            fi
+            ;;
 
         # -- status / info (top-level shortcuts) ------------------------------
         status)
@@ -4344,6 +4743,11 @@ _dispatch() {
                     }
                     ;;
 
+                # code status -------------------------------------------------
+                status)
+                    cmd_code_status
+                    ;;
+
                 # code console ------------------------------------------------
                 console)
                     # Shorthand for: system serial console
@@ -4357,6 +4761,7 @@ _dispatch() {
 
                 *)
                     echo "code subcommands:"
+                    echo "  code status                    both git repos + Arduino board at a glance"
                     echo "  code sketch upload [--Name] [--branch <n>] [--no-kill]"
                     echo "  code sketch list"
                     echo "  code sketch test [--Name]      compile only — no upload"
@@ -4435,6 +4840,7 @@ _dispatch() {
         system)
             local subcmd="${1:-help}"; shift 2>/dev/null || true
             case "$subcmd" in
+                check)            system_check ;;
                 health)           system_health ;;
                 cron)             system_cron ;;
                 doctor)           doctor ;;
@@ -4474,7 +4880,8 @@ _dispatch() {
                     ;;
                 *)
                     echo "system subcommands:"
-                    echo "  health                  full system health summary"
+                    echo "  check                   quick ready-to-bowl check (green/red)"
+                    echo "  health                  full system health dashboard"
                     echo "  cron                    show all mini-bowling cron jobs"
                     echo "  doctor                  check dependencies and dialout group"
                     echo "  preflight [--quick]     pre-deploy checks"
@@ -4498,6 +4905,7 @@ _dispatch() {
             case "$subcmd" in
                 status)   pi_status ;;
                 sysinfo)  pi_sysinfo ;;
+                cpu)      pi_cpu "$@" ;;
                 temp)     pi_temp "$@" ;;
                 disk)     pi_disk ;;
                 update)   pi_update ;;
@@ -4518,7 +4926,7 @@ _dispatch() {
                     esac
                     ;;
                 *)
-                    die "Unknown pi subcommand: '$subcmd' — use: status, sysinfo, temp, disk, update, reboot, shutdown, wifi, vnc"
+                    die "Unknown pi subcommand: '$subcmd' — use: status, sysinfo, cpu, temp, disk, update, reboot, shutdown, wifi, vnc"
                     ;;
             esac
             ;;

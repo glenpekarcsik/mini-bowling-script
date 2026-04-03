@@ -21,6 +21,7 @@ IFS=$'\n\t'
 readonly DEFAULT_GIT_BRANCH="main"
 readonly SCRIPT_VERSION="4.5.0"
 readonly SCRIPT_REPO="https://github.com/glenpekarcsik/mini-bowling-script.git"
+readonly PROJECT_REPO="https://github.com/mini-bowling/mini-bowling.git"
 readonly PROJECT_DIR="${MINI_BOWLING_DIR:-$HOME/Documents/Bowling/Arduino/mini-bowling}"
 readonly DEFAULT_PORT="/dev/ttyACM0"
 readonly BOARD="arduino:avr:mega"
@@ -2274,35 +2275,23 @@ install_setup() {
     # Step 3: clone or verify project directory
     echo "Step 3/9: Arduino project directory"
     if [[ -d "$PROJECT_DIR/.git" ]]; then
-        echo "  Project directory already exists: $PROJECT_DIR"
+        echo -e "  ${GREEN}✓${NC}  Repo already cloned: $PROJECT_DIR"
         echo "  Running git pull to get latest code..."
         git -C "$PROJECT_DIR" pull origin "$DEFAULT_GIT_BRANCH" || \
             echo -e "  ${YELLOW}Warning: git pull failed — check network and try 'mini-bowling.sh code branch update' later${NC}"
-    elif [[ -d "$PROJECT_DIR" ]]; then
-        echo -e "  ${YELLOW}Directory exists but is not a git repo: $PROJECT_DIR${NC}"
+    elif [[ -d "$PROJECT_DIR" ]] && [[ -n "$(ls -A "$PROJECT_DIR" 2>/dev/null)" ]]; then
+        echo -e "  ${YELLOW}Directory exists with content but is not a git repo:${NC} $PROJECT_DIR"
         echo "  Skipped — if this is intentional, ignore this warning."
     else
-        echo "  Project directory not found: $PROJECT_DIR"
-        echo "  This is the Arduino sketch repo (mini-bowling game code)."
-        echo "  Example: https://github.com/glenpekarcsik/mini-bowling.git"
-        echo -n "  Enter the git repo URL to clone (or press Enter to skip): "
-        read -r repo_url
-        if [[ -n "$repo_url" ]]; then
-            # Check the URL is reachable before attempting clone
-            echo "  Checking URL is reachable..."
-            if ! git ls-remote --quiet "$repo_url" HEAD >/dev/null 2>&1; then
-                echo -e "  ${RED}✗ Cannot reach repo: $repo_url${NC}"
-                echo "  Check the URL, your network connection, and any SSH key / token setup."
-                echo "  Skipped — run 'git clone $repo_url $PROJECT_DIR' manually when ready."
-            else
-                local parent_dir
-                parent_dir=$(dirname "$PROJECT_DIR")
-                mkdir -p "$parent_dir"
-                git clone "$repo_url" "$PROJECT_DIR" || die "git clone failed"
-                echo -e "  ${GREEN}✓ Cloned to $PROJECT_DIR${NC}"
-            fi
+        echo "  Cloning Arduino project from $PROJECT_REPO..."
+        echo "  Target: $PROJECT_DIR"
+        if ! git ls-remote --quiet "$PROJECT_REPO" HEAD >/dev/null 2>&1; then
+            echo -e "  ${RED}✗ Cannot reach repo: $PROJECT_REPO${NC}"
+            echo "  Check your network connection."
+            echo "  Skipped — run manually: git clone $PROJECT_REPO $PROJECT_DIR"
         else
-            echo "  Skipped — run 'git clone <url> $PROJECT_DIR' manually before deploying."
+            git clone "$PROJECT_REPO" "$PROJECT_DIR" || die "git clone failed"
+            echo -e "  ${GREEN}✓ Cloned to $PROJECT_DIR${NC}"
         fi
     fi
     echo

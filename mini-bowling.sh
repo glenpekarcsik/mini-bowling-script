@@ -543,6 +543,19 @@ print_status() {
     fi
     echo "VNC         : $vnc_line"
 
+    # OS package update check (uses local apt cache — no sudo, no network)
+    if command -v apt-get >/dev/null 2>&1; then
+        local pkg_count
+        pkg_count=$(apt-get -s upgrade 2>/dev/null | grep -c "^Inst " || echo "0")
+        if [[ -f /var/run/reboot-required ]]; then
+            echo -e "OS updates  : ${YELLOW}reboot required to apply pending updates${NC}"
+        elif [[ "$pkg_count" -gt 0 ]]; then
+            echo -e "OS updates  : ${YELLOW}${pkg_count} package(s) available — run: mini-bowling.sh pi update${NC}"
+        else
+            echo -e "OS updates  : ${GREEN}up to date${NC}"
+        fi
+    fi
+
     # Item 5: show last deploy result
     if [[ -f "$DEPLOY_STATUS_FILE" ]]; then
         local started finished result dep_commit dep_subject

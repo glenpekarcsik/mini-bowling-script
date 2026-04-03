@@ -19,7 +19,7 @@ IFS=$'\n\t'
 # ------------------------------------------------
 
 readonly DEFAULT_GIT_BRANCH="main"
-readonly SCRIPT_VERSION="4.6.0"
+readonly SCRIPT_VERSION="4.7.0"
 readonly SCRIPT_REPO="https://github.com/glenpekarcsik/mini-bowling-script.git"
 readonly PROJECT_REPO="https://github.com/mini-bowling/mini-bowling.git"
 readonly PROJECT_DIR="${MINI_BOWLING_DIR:-$HOME/Documents/Bowling/Arduino/mini-bowling}"
@@ -2249,12 +2249,17 @@ system_cron() {
         min=$(echo "$line" | awk '{print $1}')
         hr=$( echo "$line" | awk '{print $2}')
 
+        local time_str; time_str=$(printf "%02d:%02d" "$hr" "$min")
         if echo "$line" | grep -q "# mini-bowling watchdog"; then
             desc="Watchdog  (restarts ScoreMore if not running)"
         elif echo "$line" | grep -q "# mini-bowling scheduled deploy"; then
-            local time_str
-            time_str=$(printf "%02d:%02d" "$hr" "$min")
             desc="Scheduled deploy  (daily at ${time_str})"
+        elif echo "$line" | grep -q "# mini-bowling os-updates"; then
+            desc="OS updates  (daily at ${time_str} — pi update)"
+        elif echo "$line" | grep -q "# mini-bowling scoremore-update"; then
+            desc="ScoreMore update check  (daily at ${time_str})"
+        elif echo "$line" | grep -q "# mini-bowling script-update"; then
+            desc="Script update  (daily at ${time_str} — script update)"
         else
             desc="(mini-bowling job)"
         fi
@@ -2266,6 +2271,9 @@ system_cron() {
     echo "To manage:"
     echo "  scoremore watchdog enable|disable|status"
     echo "  deploy schedule HH:MM  |  deploy unschedule"
+    echo "  system os-updates enable [HH:MM]  |  disable  |  status"
+    echo "  system scoremore-update enable [HH:MM]  |  disable  |  status"
+    echo "  system script-update enable [HH:MM]  |  disable  |  status"
 }
 
 # Item 10: doctor - check all required dependencies are present
@@ -2748,6 +2756,163 @@ unschedule_deploy() {
 
     echo "$existing" | grep -v "$cron_marker" | crontab - || die "Failed to update crontab"
     echo -e "${GREEN}✓ Scheduled deploy removed.${NC}"
+}
+
+# ------------------------------------------------
+#  Scheduled maintenance cron helpers
+# ------------------------------------------------
+
+_cron_script_path() {
+    local sp
+    sp=$(command -v mini-bowling.sh 2>/dev/null) || sp=$(realpath "$0")
+    echo "$sp"
+}
+
+setup_os_updates_schedule() {
+    local subcmd="${1:-enable}"
+    local time="${2:-03:00}"
+    local cron_marker="# mini-bowling os-updates"
+    local script_path; script_path=$(_cron_script_path)
+
+    case "$subcmd" in
+        enable)
+            [[ "$time" =~ ^([01][0-9]|2[0-3]):([0-5][0-9])$ ]] || \
+                die "Invalid time format: '$time' — expected HH:MM (e.g. 03:00)"
+            local hour="${time%%:*}" minute="${time##*:}"
+            local existing; existing=$(crontab -l 2>/dev/null || true)
+            if echo "$existing" | grep -q "$cron_marker"; then
+                echo "OS updates cron job already enabled — removing old entry first."
+                existing=$(echo "$existing" | grep -v "$cron_marker" || true)
+            fi
+            local cron_job="$minute $hour * * * $script_path pi update >> $LOG_DIR/os-update.log 2>&1 $cron_marker"
+            {
+                [[ -n "$existing" ]] && echo "$existing"
+                echo "$cron_job"
+            } | crontab - || die "Failed to update crontab"
+            echo -e "${GREEN}✓ OS updates scheduled:${NC} daily at ${time}"
+            echo "  Log: $LOG_DIR/os-update.log"
+            echo "  Run 'mini-bowling.sh system os-updates disable' to remove."
+            ;;
+        disable)
+            local existing; existing=$(crontab -l 2>/dev/null || true)
+            if ! echo "$existing" | grep -q "$cron_marker"; then
+                echo "OS updates cron job not found — nothing to remove."
+                return 0
+            fi
+            echo "$existing" | { grep -v "$cron_marker" || true; } | crontab - || die "Failed to update crontab"
+            echo -e "${GREEN}✓ OS updates cron job removed.${NC}"
+            ;;
+        status)
+            local entry; entry=$(crontab -l 2>/dev/null | { grep "$cron_marker" || true; })
+            if [[ -n "$entry" ]]; then
+                local min hr; min=$(echo "$entry" | awk '{print $1}'); hr=$(echo "$entry" | awk '{print $2}')
+                echo -e "OS updates : ${GREEN}enabled${NC} — daily at $(printf '%02d:%02d' "$hr" "$min")"
+            else
+                echo "OS updates : disabled"
+            fi
+            ;;
+        *)
+            die "Unknown subcommand: '$subcmd' — use: enable [HH:MM], disable, status"
+            ;;
+    esac
+}
+
+setup_scoremore_update_schedule() {
+    local subcmd="${1:-enable}"
+    local time="${2:-03:30}"
+    local cron_marker="# mini-bowling scoremore-update"
+    local script_path; script_path=$(_cron_script_path)
+
+    case "$subcmd" in
+        enable)
+            [[ "$time" =~ ^([01][0-9]|2[0-3]):([0-5][0-9])$ ]] || \
+                die "Invalid time format: '$time' — expected HH:MM (e.g. 03:30)"
+            local hour="${time%%:*}" minute="${time##*:}"
+            local existing; existing=$(crontab -l 2>/dev/null || true)
+            if echo "$existing" | grep -q "$cron_marker"; then
+                echo "ScoreMore update cron job already enabled — removing old entry first."
+                existing=$(echo "$existing" | grep -v "$cron_marker" || true)
+            fi
+            local cron_job="$minute $hour * * * $script_path scoremore check-update >> $LOG_DIR/scoremore-update.log 2>&1 $cron_marker"
+            {
+                [[ -n "$existing" ]] && echo "$existing"
+                echo "$cron_job"
+            } | crontab - || die "Failed to update crontab"
+            echo -e "${GREEN}✓ ScoreMore update check scheduled:${NC} daily at ${time}"
+            echo "  Log: $LOG_DIR/scoremore-update.log"
+            echo "  Run 'mini-bowling.sh system scoremore-update disable' to remove."
+            ;;
+        disable)
+            local existing; existing=$(crontab -l 2>/dev/null || true)
+            if ! echo "$existing" | grep -q "$cron_marker"; then
+                echo "ScoreMore update cron job not found — nothing to remove."
+                return 0
+            fi
+            echo "$existing" | { grep -v "$cron_marker" || true; } | crontab - || die "Failed to update crontab"
+            echo -e "${GREEN}✓ ScoreMore update cron job removed.${NC}"
+            ;;
+        status)
+            local entry; entry=$(crontab -l 2>/dev/null | { grep "$cron_marker" || true; })
+            if [[ -n "$entry" ]]; then
+                local min hr; min=$(echo "$entry" | awk '{print $1}'); hr=$(echo "$entry" | awk '{print $2}')
+                echo -e "ScoreMore update : ${GREEN}enabled${NC} — daily at $(printf '%02d:%02d' "$hr" "$min")"
+            else
+                echo "ScoreMore update : disabled"
+            fi
+            ;;
+        *)
+            die "Unknown subcommand: '$subcmd' — use: enable [HH:MM], disable, status"
+            ;;
+    esac
+}
+
+setup_script_update_schedule() {
+    local subcmd="${1:-enable}"
+    local time="${2:-04:00}"
+    local cron_marker="# mini-bowling script-update"
+    local script_path; script_path=$(_cron_script_path)
+
+    case "$subcmd" in
+        enable)
+            [[ "$time" =~ ^([01][0-9]|2[0-3]):([0-5][0-9])$ ]] || \
+                die "Invalid time format: '$time' — expected HH:MM (e.g. 04:00)"
+            local hour="${time%%:*}" minute="${time##*:}"
+            local existing; existing=$(crontab -l 2>/dev/null || true)
+            if echo "$existing" | grep -q "$cron_marker"; then
+                echo "Script update cron job already enabled — removing old entry first."
+                existing=$(echo "$existing" | grep -v "$cron_marker" || true)
+            fi
+            local cron_job="$minute $hour * * * $script_path script update >> $LOG_DIR/script-update.log 2>&1 $cron_marker"
+            {
+                [[ -n "$existing" ]] && echo "$existing"
+                echo "$cron_job"
+            } | crontab - || die "Failed to update crontab"
+            echo -e "${GREEN}✓ Script update scheduled:${NC} daily at ${time}"
+            echo "  Log: $LOG_DIR/script-update.log"
+            echo "  Run 'mini-bowling.sh system script-update disable' to remove."
+            ;;
+        disable)
+            local existing; existing=$(crontab -l 2>/dev/null || true)
+            if ! echo "$existing" | grep -q "$cron_marker"; then
+                echo "Script update cron job not found — nothing to remove."
+                return 0
+            fi
+            echo "$existing" | { grep -v "$cron_marker" || true; } | crontab - || die "Failed to update crontab"
+            echo -e "${GREEN}✓ Script update cron job removed.${NC}"
+            ;;
+        status)
+            local entry; entry=$(crontab -l 2>/dev/null | { grep "$cron_marker" || true; })
+            if [[ -n "$entry" ]]; then
+                local min hr; min=$(echo "$entry" | awk '{print $1}'); hr=$(echo "$entry" | awk '{print $2}')
+                echo -e "Script update : ${GREEN}enabled${NC} — daily at $(printf '%02d:%02d' "$hr" "$min")"
+            else
+                echo "Script update : disabled"
+            fi
+            ;;
+        *)
+            die "Unknown subcommand: '$subcmd' — use: enable [HH:MM], disable, status"
+            ;;
+    esac
 }
 
 # ------------------------------------------------
@@ -4189,6 +4354,12 @@ Usage: mini-bowling.sh <command> [subcommand] [options]
     system tail-all [N]            Interleave command + Arduino serial logs (live)
     system wait-for-network [N]    Wait up to N seconds for network (default: 30)
     system serial start|stop|status|tail|console
+    system os-updates enable [HH:MM]   Schedule daily OS apt update (default: 03:00)
+    system os-updates disable|status
+    system scoremore-update enable [HH:MM]  Schedule daily ScoreMore update check (default: 03:30)
+    system scoremore-update disable|status
+    system script-update enable [HH:MM]  Schedule daily script update (default: 04:00)
+    system script-update disable|status
 
   help [command]        Show full help or per-command detail
 
@@ -4441,6 +4612,8 @@ main() {
             case "${2:-}" in
                 check|health|cron|doctor|preflight|ports|tail-all|wait-for-network)
                     _log=false ;;
+                os-updates|scoremore-update|script-update)
+                    [[ "${3:-}" == "status" ]] && _log=false ;;
             esac ;;
         scoremore)
             # scoremore version/check-update/history/logs/watchdog-status are read-only
@@ -4856,6 +5029,9 @@ _dispatch() {
                 check)            system_check ;;
                 health)           system_health ;;
                 cron)             system_cron ;;
+                os-updates)       setup_os_updates_schedule "${1:-enable}" "${2:-}" ;;
+                scoremore-update) setup_scoremore_update_schedule "${1:-enable}" "${2:-}" ;;
+                script-update)    setup_script_update_schedule "${1:-enable}" "${2:-}" ;;
                 doctor)           doctor ;;
                 preflight)        preflight "$@" ;;
                 backup)           backup_config "$@" ;;
@@ -4905,6 +5081,12 @@ _dispatch() {
                     echo "  tail-all [N]            interleave command + Arduino logs (live)"
                     echo "  wait-for-network [N]    wait for internet connectivity"
                     echo "  serial start|stop|status|tail|console"
+                    echo "  os-updates enable [HH:MM]    schedule daily OS apt update (default: 03:00)"
+                    echo "  os-updates disable|status"
+                    echo "  scoremore-update enable [HH:MM]  schedule daily ScoreMore update check (default: 03:30)"
+                    echo "  scoremore-update disable|status"
+                    echo "  script-update enable [HH:MM] schedule daily script update (default: 04:00)"
+                    echo "  script-update disable|status"
                     echo ""
                     echo "  (watchdog moved to: scoremore watchdog run|enable|disable|status)"
                     echo ""

@@ -84,7 +84,7 @@ _mini_bowling_complete() {
             scoremore) COMPREPLY=( $(compgen -W "start stop restart download version check-update history rollback autostart remove-autostart logs watchdog" -- "$cur") ) ;;
             pi)       COMPREPLY=( $(compgen -W "status sysinfo cpu temp disk update reboot shutdown wifi vnc" -- "$cur") ) ;;
             logs)     COMPREPLY=( $(compgen -W "follow dump tail clean" -- "$cur") ) ;;
-            system)   COMPREPLY=( $(compgen -W "check health cron doctor preflight backup repair cleanup ports tail-all wait-for-network serial watchdog" -- "$cur") ) ;;
+            system)   COMPREPLY=( $(compgen -W "check health cron doctor preflight backup repair cleanup ports tail-all wait-for-network serial watchdog os-updates scoremore-update script-update" -- "$cur") ) ;;
         esac
         return 0
     fi
@@ -145,12 +145,14 @@ _mini_bowling_complete() {
                 esac ;;
             system)
                 case "$sub" in
-                    preflight)  COMPREPLY=( $(compgen -W "--quick -q" -- "$cur") ) ;;
-                    backup)     COMPREPLY=( $(compgen -W "--include-appimage" -- "$cur") ) ;;
-                    tail-all)   COMPREPLY=( $(compgen -W "50 100 200" -- "$cur") ) ;;
+                    preflight)        COMPREPLY=( $(compgen -W "--quick -q" -- "$cur") ) ;;
+                    backup)           COMPREPLY=( $(compgen -W "--include-appimage" -- "$cur") ) ;;
+                    tail-all)         COMPREPLY=( $(compgen -W "50 100 200" -- "$cur") ) ;;
                     wait-for-network) COMPREPLY=( $(compgen -W "30 60 120" -- "$cur") ) ;;
-                    serial)     COMPREPLY=( $(compgen -W "start stop status tail console" -- "$cur") ) ;;
-                    watchdog)   COMPREPLY=( $(compgen -W "run enable disable status" -- "$cur") ) ;;
+                    serial)           COMPREPLY=( $(compgen -W "start stop status tail console" -- "$cur") ) ;;
+                    watchdog)         COMPREPLY=( $(compgen -W "run enable disable status" -- "$cur") ) ;;
+                    os-updates|scoremore-update|script-update)
+                        COMPREPLY=( $(compgen -W "enable disable status" -- "$cur") ) ;;
                 esac ;;
             deploy)
                 case "$sub" in

@@ -19,7 +19,7 @@ IFS=$'\n\t'
 # ------------------------------------------------
 
 readonly DEFAULT_GIT_BRANCH="main"
-readonly SCRIPT_VERSION="4.4.0"
+readonly SCRIPT_VERSION="4.5.0"
 readonly SCRIPT_REPO="https://github.com/glenpekarcsik/mini-bowling-script.git"
 readonly PROJECT_DIR="${MINI_BOWLING_DIR:-$HOME/Documents/Bowling/Arduino/mini-bowling}"
 readonly DEFAULT_PORT="/dev/ttyACM0"
@@ -2262,17 +2262,17 @@ install_setup() {
     echo
 
     # Step 1: create directories
-    echo "Step 1/8: Creating required directories..."
+    echo "Step 1/9: Creating required directories..."
     ensure_directories
     echo
 
     # Step 2: install arduino-cli
-    echo "Step 2/8: Checking arduino-cli..."
+    echo "Step 2/9: Checking arduino-cli..."
     install_cli
     echo
 
     # Step 3: clone or verify project directory
-    echo "Step 3/8: Arduino project directory"
+    echo "Step 3/9: Arduino project directory"
     if [[ -d "$PROJECT_DIR/.git" ]]; then
         echo "  Project directory already exists: $PROJECT_DIR"
         echo "  Running git pull to get latest code..."
@@ -2283,6 +2283,8 @@ install_setup() {
         echo "  Skipped — if this is intentional, ignore this warning."
     else
         echo "  Project directory not found: $PROJECT_DIR"
+        echo "  This is the Arduino sketch repo (mini-bowling game code)."
+        echo "  Example: https://github.com/glenpekarcsik/mini-bowling.git"
         echo -n "  Enter the git repo URL to clone (or press Enter to skip): "
         read -r repo_url
         if [[ -n "$repo_url" ]]; then
@@ -2306,7 +2308,7 @@ install_setup() {
     echo
 
     # Step 4: download ScoreMore
-    echo "Step 4/8: Download ScoreMore"
+    echo "Step 4/9: Download ScoreMore"
     if [[ -L "$SYMLINK_PATH" ]] && [[ -f "$SYMLINK_PATH" ]]; then
         local current_ver
         current_ver=$(basename "$(readlink -f "$SYMLINK_PATH")" | \
@@ -2335,29 +2337,92 @@ install_setup() {
     fi
     echo
 
-    # Step 5: autostart
-    echo "Step 5/8: Configuring ScoreMore autostart..."
-    setup_autostart
-    echo
+    # Step 5: install script + completion to /usr/bin
+    echo "Step 5/9: Installing script to /usr/bin..."
+    local script_src; script_src=$(realpath "$0")
+    local script_dst="/usr/bin/mini-bowling.sh"
+    local completion_dst="/etc/bash_completion.d/mini-bowling.sh"
 
-    # Step 6: doctor check
-    echo "Step 6/8: Checking dependencies..."
-    doctor
-    echo
-
-    # Step 7: watchdog
-    echo "Step 7/8: Enable ScoreMore watchdog? (restarts ScoreMore every 5 min if it crashes)"
-    echo -n "  Enable watchdog? [Y/n]: "
-    read -r wd_answer
-    if [[ "${wd_answer,,}" != "n" ]]; then
-        setup_watchdog enable
+    # Install the script
+    if [[ "$script_src" == "$script_dst" ]]; then
+        echo -e "  ${GREEN}✓${NC}  Script already at $script_dst"
     else
-        echo "  Skipped — run 'mini-bowling.sh scoremore watchdog enable' at any time."
+        if sudo cp "$script_src" "$script_dst" && sudo chmod +x "$script_dst"; then
+            echo -e "  ${GREEN}✓${NC}  Installed: $script_dst"
+        else
+            echo -e "  ${YELLOW}!${NC}  Could not install to $script_dst — do you have sudo access?"
+            echo "       Run manually: sudo cp $script_src $script_dst"
+        fi
+    fi
+
+    # Install the completion file — look for it alongside the script
+    local completion_src
+    for _candidate in \
+        "$(dirname "$script_src")/mini-bowling-completion.bash" \
+        "$HOME/mini-bowling-completion.bash" \
+        "./mini-bowling-completion.bash"; do
+        if [[ -f "$_candidate" ]]; then
+            completion_src="$_candidate"
+            break
+        fi
+    done
+
+    if [[ -z "${completion_src:-}" ]]; then
+        echo -e "  ${YELLOW}!${NC}  mini-bowling-completion.bash not found — tab completion not installed."
+        echo "       Download it from: $SCRIPT_REPO"
+        echo "       Then run: sudo cp mini-bowling-completion.bash $completion_dst"
+    else
+        if sudo cp "$completion_src" "$completion_dst"; then
+            echo -e "  ${GREEN}✓${NC}  Tab completion installed: $completion_dst"
+            # shellcheck disable=SC1090
+            source "$completion_dst" 2>/dev/null || true
+        else
+            echo -e "  ${YELLOW}!${NC}  Could not install completion file."
+            echo "       Run manually: sudo cp $completion_src $completion_dst"
+        fi
     fi
     echo
 
-    # Step 8: schedule
-    echo "Step 8/8: Schedule daily deploy (optional)"
+    # Step 6: autostart
+    echo "Step 6/9: Configuring ScoreMore autostart..."
+    local desktop_file="$HOME/.config/autostart/scoremore.desktop"
+    if [[ -f "$desktop_file" ]]; then
+        echo -e "  ${GREEN}✓${NC}  Autostart already configured: $desktop_file"
+    else
+        setup_autostart
+    fi
+    echo
+
+    # Step 7: doctor check
+    echo "Step 7/9: Checking dependencies..."
+    doctor
+    echo
+
+    # Step 8: watchdog
+    echo "Step 8/9: ScoreMore watchdog (restarts ScoreMore every 5 min if it crashes)"
+    if crontab -l 2>/dev/null | grep -q "# mini-bowling watchdog"; then
+        echo -e "  ${GREEN}✓${NC}  Watchdog already enabled."
+    else
+        echo -n "  Enable watchdog? [Y/n]: "
+        read -r wd_answer
+        if [[ "${wd_answer,,}" != "n" ]]; then
+            setup_watchdog enable
+        else
+            echo "  Skipped — run 'mini-bowling.sh scoremore watchdog enable' at any time."
+        fi
+    fi
+    echo
+
+    # Step 9: schedule
+    echo "Step 9/9: Schedule daily deploy (optional)"
+    local existing_schedule
+    existing_schedule=$(crontab -l 2>/dev/null | grep "# mini-bowling scheduled deploy" || true)
+    if [[ -n "$existing_schedule" ]]; then
+        echo -e "  ${GREEN}✓${NC}  Deploy already scheduled: $existing_schedule"
+        echo -n "  Change schedule? [y/N]: "
+        read -r resched_answer
+        [[ "${resched_answer,,}" != "y" ]] && { echo; return 0; } || true
+    fi
     echo -n "  Enter a daily deploy time in HH:MM format, or press Enter to skip: "
     read -r sched_time
     if [[ -n "$sched_time" ]]; then
@@ -2370,11 +2435,12 @@ install_setup() {
     echo -e "${GREEN}✓ Setup complete.${NC}"
     echo
     echo "Next steps:"
-    echo "  1. Connect the Arduino and run:  mini-bowling.sh code sketch list"
-    echo "  2. Update DEFAULT_PORT and BOARD in the script if needed"
-    echo "  3. Re-copy the script:           sudo cp mini-bowling.sh /usr/bin/mini-bowling.sh"
-    echo "  4. Run a pre-flight check:       mini-bowling.sh preflight"
-    echo "  5. Run your first deploy:        mini-bowling.sh deploy"
+    echo "  1. Connect the Arduino and check the port:"
+    echo "       mini-bowling.sh system ports"
+    echo "       mini-bowling.sh code sketch list"
+    echo "  2. If DEFAULT_PORT or BOARD need updating, edit /usr/bin/mini-bowling.sh"
+    echo "  3. Run a pre-flight check:  mini-bowling.sh system preflight"
+    echo "  4. Run your first deploy:   mini-bowling.sh deploy"
 }
 
 setup_autostart() {

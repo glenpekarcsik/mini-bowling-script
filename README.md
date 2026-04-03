@@ -141,22 +141,47 @@ Clone the script repo:
 ```bash
 git clone https://github.com/glenpekarcsik/mini-bowling-script.git
 cd mini-bowling-script
-```
-
-Make executable and install to `/usr/bin` so cron jobs can find it:
-```bash
 chmod +x mini-bowling.sh
-sudo cp mini-bowling.sh /usr/bin/mini-bowling.sh
 ```
 
 Run the guided setup wizard:
 ```bash
-mini-bowling.sh install setup
+./mini-bowling.sh install setup
 ```
 
-The wizard creates directories, installs `arduino-cli`, clones or pulls the Arduino project, downloads the latest ScoreMore, configures autostart, runs a dependency check, and optionally enables the watchdog and schedules a daily deploy.
+The wizard runs 9 steps:
 
-Each step can also be run manually:
+1. Create required directories
+2. Install `arduino-cli`
+3. Clone or pull the Arduino project repo (prompts for URL on first install)
+4. Download latest ScoreMore
+5. **Copy script to `/usr/bin/mini-bowling.sh` and install tab completion** to `/etc/bash_completion.d/`
+6. Configure ScoreMore autostart on login
+7. Run dependency check (`system doctor`)
+8. Enable ScoreMore watchdog (Y/n prompt)
+9. Schedule daily deploy (optional, enter HH:MM or skip)
+
+After the wizard completes, there are two things to check manually:
+
+**1. Verify the Arduino port and board:**
+
+```bash
+mini-bowling.sh system ports        # list detected serial devices
+mini-bowling.sh code sketch list    # or: arduino-cli board list
+```
+
+Look for `/dev/ttyACM0` showing `Arduino Mega or Mega 2560`. If the port or board differs from the defaults, update these constants near the top of `/usr/bin/mini-bowling.sh`:
+```bash
+readonly DEFAULT_PORT="/dev/ttyACM0"
+readonly BOARD="arduino:avr:mega"
+```
+
+**2. Run pre-flight to confirm everything is ready:**
+```bash
+mini-bowling.sh system preflight
+```
+
+Each setup step can also be run individually if needed:
 ```bash
 mini-bowling.sh install create-dir
 mini-bowling.sh install cli
@@ -166,27 +191,6 @@ mini-bowling.sh scoremore autostart enable
 mini-bowling.sh system doctor
 mini-bowling.sh scoremore watchdog enable
 mini-bowling.sh deploy schedule 02:30
-```
-
-**Find and configure your Arduino port:**
-```bash
-mini-bowling.sh code sketch list   # or: arduino-cli board list
-```
-
-Look for `/dev/ttyACM0` showing `Arduino Mega or Mega 2560`. Update these constants near the top of the script:
-```bash
-readonly DEFAULT_PORT="/dev/ttyACM0"
-readonly BOARD="arduino:avr:mega"
-```
-
-Then re-copy to `/usr/bin`:
-```bash
-sudo cp mini-bowling.sh /usr/bin/mini-bowling.sh
-```
-
-Run pre-flight to confirm everything is ready:
-```bash
-mini-bowling.sh system preflight
 ```
 
 Then check status:

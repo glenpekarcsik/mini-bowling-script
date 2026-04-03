@@ -32,6 +32,7 @@ code pull                      Pull latest for current branch
 code pull <branch>             Switch to branch and pull latest
 code switch [<branch>]         Permanently switch to branch (default: main)
 code console                   Open interactive serial console
+code config                    Open Arduino config tool in browser
 
 code branch list               List local + remote branches with commit info
 code branch checkout <n>       Temporarily checkout, compile, return to original
@@ -78,6 +79,8 @@ script version|update
 ## Features
 
 **Arduino & Deploy**
+
+- Browser-based Arduino config tool — opens `config-tool/index.html` from the project repo in the Pi's default browser (`code config`)
 - Full deploy cycle — wait for network → pull → upload `Everything` → restart ScoreMore, with pass/fail recorded and `notify-send` desktop notification on finish
 - Compile-only check before uploading — verify a sketch builds without touching hardware (`code sketch test`)
 - Port and sketch existence verified before killing ScoreMore — nothing goes down for a typo
@@ -230,6 +233,7 @@ Done.
 | `code pull` | Pull latest for current branch (or switch+pull) | `[<branch>]` \| `--branch <n>` | `mini-bowling.sh code pull feature/new-sensor` |
 | `code switch` | Permanently switch to branch (default: main) | `[<branch>]` | `mini-bowling.sh code switch feature/new-sensor` |
 | `code console` | Open interactive serial console | — | `mini-bowling.sh code console` |
+| `code config` | Open Arduino config tool in browser | — | `mini-bowling.sh code config` |
 | `code branch list` | List all branches with latest commit info | — | `mini-bowling.sh code branch list` |
 | `code branch checkout` | Temporarily checkout branch, compile, return | `<branch> [--Sketch]` | `mini-bowling.sh code branch checkout feature/new-sensor` |
 | `code branch switch` | Permanently switch to branch (fetch + pull) | `<branch>` | `mini-bowling.sh code branch switch feature/new-sensor` |
@@ -328,6 +332,7 @@ mini-bowling.sh code pull
 mini-bowling.sh code pull feature/new-sensor
 mini-bowling.sh code switch feature/new-sensor
 mini-bowling.sh code console
+mini-bowling.sh code config
 mini-bowling.sh code branch list
 mini-bowling.sh code branch switch feature/new-sensor
 mini-bowling.sh code branch switch main
@@ -360,6 +365,10 @@ mini-bowling.sh system serial tail
 mini-bowling.sh system serial console
 mini-bowling.sh code console
 mini-bowling.sh logs follow
+
+# ── Config tool ───────────────────────────────────────────────────────────────
+
+mini-bowling.sh code config
 mini-bowling.sh logs tail 100
 mini-bowling.sh logs dump
 mini-bowling.sh logs clean --keep 7
@@ -564,6 +573,18 @@ mini-bowling.sh logs clean --keep 7           # keep last 7 days
 ```
 
 The `--date` flag is useful the morning after a 2:30am deploy — the deploy completed in yesterday's log, not today's.
+
+## Arduino Config Tool
+
+The Arduino project includes a browser-based configuration tool at `config-tool/index.html` that helps configure settings in the Arduino code without editing source files directly.
+
+```bash
+mini-bowling.sh code config
+```
+
+Opens `$PROJECT_DIR/config-tool/index.html` in the default browser on the Pi. Browser detection order: `chromium-browser` → `chromium` → `firefox` → `epiphany` → `xdg-open`.
+
+The browser is launched in the background and the terminal is returned immediately.
 
 ## System Serial
 

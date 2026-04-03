@@ -882,6 +882,40 @@ cmd_sketch_info() {
     fi
 }
 
+cmd_config_tool() {
+    local config_file="$PROJECT_DIR/config-tool/index.html"
+
+    if [[ ! -f "$config_file" ]]; then
+        die "Config tool not found: $config_file
+  Is the Arduino project cloned? Run: mini-bowling.sh code branch update"
+    fi
+
+    # Resolve display the same way start_scoremore does
+    local display="${DISPLAY:-}"
+    if [[ -z "$display" ]]; then
+        display=$(who | awk '{print $NF}' | grep -oP ':\d+' | head -1 || true)
+    fi
+    [[ -z "$display" ]] && display=":0"
+    export DISPLAY="$display"
+
+    # Find a browser — prefer chromium for kiosk-style Pi use
+    local browser=""
+    for _b in chromium-browser chromium firefox epiphany xdg-open; do
+        if command -v "$_b" >/dev/null 2>&1; then
+            browser="$_b"
+            break
+        fi
+    done
+
+    [[ -z "$browser" ]] && die "No browser found — install chromium-browser or firefox"
+
+    echo "Opening config tool: $config_file"
+    echo "Browser: $browser  (DISPLAY=$display)"
+    nohup "$browser" "$config_file" >/dev/null 2>&1 &
+    disown
+    echo -e "${GREEN}✓ Config tool opened${NC}"
+}
+
 cmd_update() {
     require_git_repo
 
@@ -3800,6 +3834,7 @@ Usage: mini-bowling.sh <command> [subcommand] [options]
     code pull --branch <n>         Switch to branch and pull latest
     code switch [<branch>]         Permanently switch to branch (default: main)
     code console                   Open interactive serial console
+    code config                    Open Arduino config tool in browser
     code branch list               List local + remote branches with commit info
     code branch checkout <n>       Temporarily checkout, compile, return to original
     code branch switch <n>         Permanently switch to branch (fetches + pulls)
@@ -3908,6 +3943,7 @@ Examples:
   mini-bowling.sh code pull feature/new-sensor
   mini-bowling.sh code switch feature/new-sensor
   mini-bowling.sh code console
+  mini-bowling.sh code config
   mini-bowling.sh code branch list
   mini-bowling.sh code branch switch feature/new-sensor
   mini-bowling.sh code branch checkout feature/new-sensor --Master_Test
@@ -3925,6 +3961,9 @@ Examples:
   mini-bowling.sh scoremore rollback
   mini-bowling.sh scoremore autostart
   mini-bowling.sh scoremore logs tail
+
+  ── Config tool ────────────────────────────────────────────────────
+  mini-bowling.sh code config
 
   ── Serial & monitoring ────────────────────────────────────────────
   mini-bowling.sh system serial start
@@ -4026,7 +4065,7 @@ EOF
                     esac ;;
                 sketch)
                     [[ "${3:-}" == "list" || "${3:-}" == "info" ]] && _log=false ;;
-                compile|console) _log=false ;;
+                compile|console|config) _log=false ;;
             esac ;;
         deploy)
             [[ "${2:-}" == "history" ]] && _log=false ;;
@@ -4311,6 +4350,11 @@ _dispatch() {
                     show_console
                     ;;
 
+                # code config -------------------------------------------------
+                config)
+                    cmd_config_tool
+                    ;;
+
                 *)
                     echo "code subcommands:"
                     echo "  code sketch upload [--Name] [--branch <n>] [--no-kill]"
@@ -4324,6 +4368,7 @@ _dispatch() {
                     echo "  code pull --branch <n>         switch to branch and pull latest"
                     echo "  code switch [<branch>]         permanently switch to branch (default: main)"
                     echo "  code console                   open interactive serial console"
+                    echo "  code config                    open Arduino config tool in browser"
                     echo "  code branch list"
                     echo "  code branch checkout <n> [--Sketch]"
                     echo "  code branch switch <n>         permanently switch branch"

@@ -19,7 +19,7 @@ IFS=$'\n\t'
 # ------------------------------------------------
 
 readonly DEFAULT_GIT_BRANCH="main"
-readonly SCRIPT_VERSION="4.0.0"
+readonly SCRIPT_VERSION="4.3.0"
 readonly SCRIPT_REPO="https://github.com/glenpekarcsik/mini-bowling-script.git"
 readonly PROJECT_DIR="${MINI_BOWLING_DIR:-$HOME/Documents/Bowling/Arduino/mini-bowling}"
 readonly DEFAULT_PORT="/dev/ttyACM0"
@@ -1688,11 +1688,20 @@ update_script() {
         echo -e "  ${GREEN}✓ Updated:${NC} $plain_cmd"
     fi
 
-    # Update tab completion file if it was previously installed to the standard location
+    # Update tab completion file if it was previously installed to a standard location
     local completion_src="$script_repo_dir/mini-bowling-completion.bash"
-    local completion_dst="/etc/bash_completion.d/mini-bowling.sh"
-    if [[ -f "$completion_src" && -f "$completion_dst" ]]; then
-        echo "→ Updating tab completion..."
+    local completion_dst=""
+    for _candidate in \
+        /etc/bash_completion.d/mini-bowling.sh \
+        /usr/share/bash-completion/completions/mini-bowling.sh \
+        /usr/local/share/bash-completion/completions/mini-bowling.sh; do
+        if [[ -f "$_candidate" ]]; then
+            completion_dst="$_candidate"
+            break
+        fi
+    done
+    if [[ -f "$completion_src" && -n "$completion_dst" ]]; then
+        echo "→ Updating tab completion ($completion_dst)..."
         sudo cp "$completion_src" "$completion_dst" || \
             echo -e "  ${YELLOW}Warning: could not update completion file — run: sudo cp $completion_src $completion_dst${NC}"
         echo -e "  ${GREEN}✓ Tab completion updated:${NC} $completion_dst"
@@ -3433,6 +3442,7 @@ Usage: mini-bowling.sh <command> [subcommand] [options]
     code pull <branch>             Switch to branch and pull latest
     code pull --branch <n>         Switch to branch and pull latest
     code switch [<branch>]         Permanently switch to branch (default: main)
+    code console                   Open interactive serial console
     code branch list               List local + remote branches with commit info
     code branch checkout <n>       Temporarily checkout, compile, return to original
     code branch switch <n>         Permanently switch to branch (fetches + pulls)
@@ -3503,7 +3513,11 @@ Usage: mini-bowling.sh <command> [subcommand] [options]
     system ports                   List serial devices with USB info
     system tail-all [N]            Interleave command + Arduino serial logs (live)
     system wait-for-network [N]    Wait up to N seconds for network (default: 30)
-    system serial start|stop|status|tail|console
+    system serial start            Start background serial logging
+    system serial stop             Stop background serial logging
+    system serial status           Show serial logging status
+    system serial tail             Live tail of serial output
+    system serial console          Open interactive serial console (also: code console)
 
 Examples:
 
@@ -3523,11 +3537,13 @@ Examples:
   mini-bowling.sh code sketch list
   mini-bowling.sh code sketch test --Everything
   mini-bowling.sh code sketch rollback
+  mini-bowling.sh code sketch info
   mini-bowling.sh code compile --Everything
   mini-bowling.sh code compile --Master_Test
   mini-bowling.sh code pull
   mini-bowling.sh code pull feature/new-sensor
   mini-bowling.sh code switch feature/new-sensor
+  mini-bowling.sh code console
   mini-bowling.sh code branch list
   mini-bowling.sh code branch switch feature/new-sensor
   mini-bowling.sh code branch checkout feature/new-sensor --Master_Test
@@ -3551,14 +3567,18 @@ Examples:
   mini-bowling.sh system serial stop
   mini-bowling.sh system serial tail
   mini-bowling.sh system serial console
+  mini-bowling.sh code console
   mini-bowling.sh logs follow
-  mini-bowling.sh logs tail 100 --date 2026-03-15
+  mini-bowling.sh logs tail 100
+  mini-bowling.sh logs dump
+  mini-bowling.sh logs clean --keep 7
   mini-bowling.sh system tail-all
 
   ── Watchdog ───────────────────────────────────────────────────────
   mini-bowling.sh scoremore watchdog run
   mini-bowling.sh scoremore watchdog enable
   mini-bowling.sh scoremore watchdog disable
+  mini-bowling.sh scoremore watchdog status
 
   ── System ─────────────────────────────────────────────────────────
   mini-bowling.sh system doctor
@@ -3577,12 +3597,16 @@ Examples:
   mini-bowling.sh script version
   mini-bowling.sh script update
   mini-bowling.sh pi status
+  mini-bowling.sh pi sysinfo
   mini-bowling.sh pi update
   mini-bowling.sh pi reboot
+  mini-bowling.sh pi shutdown
   mini-bowling.sh pi wifi
   mini-bowling.sh pi vnc status
   mini-bowling.sh pi vnc start
+  mini-bowling.sh pi vnc stop
   mini-bowling.sh pi vnc enable
+  mini-bowling.sh pi vnc disable
 
 EOF
         exit 0

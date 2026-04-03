@@ -30,6 +30,7 @@ code compile [--Name]          Compile without uploading (default: Everything)
 code pull                      Pull latest for current branch
 code pull <branch>             Switch to branch and pull latest
 code switch [<branch>]         Permanently switch to branch (default: main)
+code console                   Open interactive serial console
 
 code branch list               List local + remote branches with commit info
 code branch checkout <n>       Temporarily checkout, compile, return to original
@@ -212,6 +213,7 @@ Done.
 | `code compile` | Compile sketch without uploading | `[--Name]` (default: Everything) | `mini-bowling.sh code compile --Master_Test` |
 | `code pull` | Pull latest for current branch (or switch+pull) | `[<branch>]` \| `--branch <n>` | `mini-bowling.sh code pull feature/new-sensor` |
 | `code switch` | Permanently switch to branch (default: main) | `[<branch>]` | `mini-bowling.sh code switch feature/new-sensor` |
+| `code console` | Open interactive serial console | — | `mini-bowling.sh code console` |
 | `code branch list` | List all branches with latest commit info | — | `mini-bowling.sh code branch list` |
 | `code branch checkout` | Temporarily checkout branch, compile, return | `<branch> [--Sketch]` | `mini-bowling.sh code branch checkout feature/new-sensor` |
 | `code branch switch` | Permanently switch to branch (fetch + pull) | `<branch>` | `mini-bowling.sh code branch switch feature/new-sensor` |
@@ -301,6 +303,7 @@ mini-bowling.sh code compile --Master_Test
 mini-bowling.sh code pull
 mini-bowling.sh code pull feature/new-sensor
 mini-bowling.sh code switch feature/new-sensor
+mini-bowling.sh code console
 mini-bowling.sh code branch list
 mini-bowling.sh code branch switch feature/new-sensor
 mini-bowling.sh code branch switch main
@@ -331,8 +334,10 @@ mini-bowling.sh system serial stop
 mini-bowling.sh system serial status
 mini-bowling.sh system serial tail
 mini-bowling.sh system serial console
+mini-bowling.sh code console
 mini-bowling.sh logs follow
-mini-bowling.sh logs tail 100 --date 2026-03-15
+mini-bowling.sh logs tail 100
+mini-bowling.sh logs dump
 mini-bowling.sh logs clean --keep 7
 mini-bowling.sh system tail-all
 
@@ -359,6 +364,7 @@ mini-bowling.sh install cli
 mini-bowling.sh script version
 mini-bowling.sh script update
 mini-bowling.sh pi status
+mini-bowling.sh pi sysinfo
 mini-bowling.sh pi update
 mini-bowling.sh pi reboot
 mini-bowling.sh pi shutdown

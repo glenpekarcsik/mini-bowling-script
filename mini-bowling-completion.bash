@@ -81,10 +81,10 @@ _mini_bowling_complete() {
             code)     COMPREPLY=( $(compgen -W "sketch branch compile pull switch console" -- "$cur") ) ;;
             install)  COMPREPLY=( $(compgen -W "setup create-dir cli" -- "$cur") ) ;;
             script)   COMPREPLY=( $(compgen -W "version update" -- "$cur") ) ;;
-            scoremore) COMPREPLY=( $(compgen -W "start stop restart download version check-update history rollback autostart remove-autostart logs" -- "$cur") ) ;;
+            scoremore) COMPREPLY=( $(compgen -W "start stop restart download version check-update history rollback autostart remove-autostart logs watchdog" -- "$cur") ) ;;
             pi)       COMPREPLY=( $(compgen -W "status sysinfo update reboot shutdown wifi vnc" -- "$cur") ) ;;
             logs)     COMPREPLY=( $(compgen -W "follow dump tail clean" -- "$cur") ) ;;
-            system)   COMPREPLY=( $(compgen -W "doctor preflight backup repair cleanup ports tail-all install script wait-for-network serial watchdog" -- "$cur") ) ;;
+            system)   COMPREPLY=( $(compgen -W "doctor preflight backup repair cleanup ports tail-all wait-for-network serial watchdog" -- "$cur") ) ;;
         esac
         return 0
     fi
@@ -127,6 +127,8 @@ _mini_bowling_complete() {
                     download)  COMPREPLY=( $(compgen -W "latest $(_mb_sm_versions)" -- "$cur") ) ;;
                     history)   COMPREPLY=( $(compgen -W "list use clean" -- "$cur") ) ;;
                     logs)      COMPREPLY=( $(compgen -W "show list tail dump" -- "$cur") ) ;;
+                    autostart) COMPREPLY=( $(compgen -W "enable disable status" -- "$cur") ) ;;
+                    watchdog)  COMPREPLY=( $(compgen -W "run enable disable status" -- "$cur") ) ;;
                 esac ;;
             pi)
                 case "$sub" in
@@ -143,8 +145,6 @@ _mini_bowling_complete() {
                     backup)     COMPREPLY=( $(compgen -W "--include-appimage" -- "$cur") ) ;;
                     tail-all)   COMPREPLY=( $(compgen -W "50 100 200" -- "$cur") ) ;;
                     wait-for-network) COMPREPLY=( $(compgen -W "30 60 120" -- "$cur") ) ;;
-                    install)    COMPREPLY=( $(compgen -W "setup create-dir cli preflight" -- "$cur") ) ;;
-                    script)     COMPREPLY=( $(compgen -W "version update" -- "$cur") ) ;;
                     serial)     COMPREPLY=( $(compgen -W "start stop status tail console" -- "$cur") ) ;;
                     watchdog)   COMPREPLY=( $(compgen -W "run enable disable status" -- "$cur") ) ;;
                 esac ;;

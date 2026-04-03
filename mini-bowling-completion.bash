@@ -77,14 +77,14 @@ _mini_bowling_complete() {
     if [[ $cword -eq 2 ]]; then
         case "$cmd" in
             status)   COMPREPLY=( $(compgen -W "--watch -w" -- "$cur") ) ;;
-            deploy)   COMPREPLY=( $(compgen -W "--dry-run --no-kill --branch schedule unschedule" -- "$cur") ) ;;
+            deploy)   COMPREPLY=( $(compgen -W "--dry-run --no-kill --branch schedule unschedule history" -- "$cur") ) ;;
             code)     COMPREPLY=( $(compgen -W "sketch branch compile pull switch console" -- "$cur") ) ;;
             install)  COMPREPLY=( $(compgen -W "setup create-dir cli" -- "$cur") ) ;;
             script)   COMPREPLY=( $(compgen -W "version update" -- "$cur") ) ;;
             scoremore) COMPREPLY=( $(compgen -W "start stop restart download version check-update history rollback autostart remove-autostart logs watchdog" -- "$cur") ) ;;
-            pi)       COMPREPLY=( $(compgen -W "status sysinfo update reboot shutdown wifi vnc" -- "$cur") ) ;;
+            pi)       COMPREPLY=( $(compgen -W "status sysinfo temp disk update reboot shutdown wifi vnc" -- "$cur") ) ;;
             logs)     COMPREPLY=( $(compgen -W "follow dump tail clean" -- "$cur") ) ;;
-            system)   COMPREPLY=( $(compgen -W "doctor preflight backup repair cleanup ports tail-all wait-for-network serial watchdog" -- "$cur") ) ;;
+            system)   COMPREPLY=( $(compgen -W "health cron doctor preflight backup repair cleanup ports tail-all wait-for-network serial watchdog" -- "$cur") ) ;;
         esac
         return 0
     fi
@@ -132,7 +132,8 @@ _mini_bowling_complete() {
                 esac ;;
             pi)
                 case "$sub" in
-                    vnc) COMPREPLY=( $(compgen -W "status start stop enable disable" -- "$cur") ) ;;
+                    vnc)  COMPREPLY=( $(compgen -W "status start stop enable disable" -- "$cur") ) ;;
+                    temp) COMPREPLY=( $(compgen -W "--watch" -- "$cur") ) ;;
                 esac ;;
             logs)
                 case "$sub" in
@@ -151,8 +152,8 @@ _mini_bowling_complete() {
             deploy)
                 case "$sub" in
                     schedule)   COMPREPLY=( $(compgen -W "02:00 02:30 03:00 03:30" -- "$cur") ) ;;
-                    --branch)
-                        COMPREPLY=( $(compgen -W "$(_mb_branches)" -- "$cur") ) ;;
+                    history)    COMPREPLY=( $(compgen -W "10 20 50" -- "$cur") ) ;;
+                    --branch)   COMPREPLY=( $(compgen -W "$(_mb_branches)" -- "$cur") ) ;;
                 esac ;;
         esac
         return 0

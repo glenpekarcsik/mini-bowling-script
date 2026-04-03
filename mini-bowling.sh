@@ -19,7 +19,7 @@ IFS=$'\n\t'
 # ------------------------------------------------
 
 readonly DEFAULT_GIT_BRANCH="main"
-readonly SCRIPT_VERSION="4.3.0"
+readonly SCRIPT_VERSION="4.4.0"
 readonly SCRIPT_REPO="https://github.com/glenpekarcsik/mini-bowling-script.git"
 readonly PROJECT_DIR="${MINI_BOWLING_DIR:-$HOME/Documents/Bowling/Arduino/mini-bowling}"
 readonly DEFAULT_PORT="/dev/ttyACM0"
@@ -260,6 +260,53 @@ show_logs() {
             die "Unknown logs subcommand: '$subcmd' — use list, follow, dump [--date YYYY-MM-DD], tail [N] [--date YYYY-MM-DD], or clean"
             ;;
     esac
+}
+
+deploy_history() {
+    local limit=20
+    [[ "${1:-}" =~ ^[0-9]+$ ]] && { limit="$1"; shift; }
+
+    echo "=== Deploy History (last $limit) ==="
+    echo
+
+    if [[ ! -d "$LOG_DIR" ]]; then
+        echo "Log directory not found: $LOG_DIR"
+        return 0
+    fi
+
+    # Collect all log files sorted newest-first
+    local log_files=()
+    mapfile -t log_files < <(find "$LOG_DIR" -maxdepth 1 -name "mini-bowling-*.log" \
+        2>/dev/null | sort -r)
+
+    if [[ ${#log_files[@]} -eq 0 ]]; then
+        echo "No log files found — run a deploy first."
+        return 0
+    fi
+
+    # Extract deploy header lines: lines starting with a timestamp followed by deploy command
+    # Log format: "YYYY-MM-DD HH:MM:SS  mini-bowling.sh deploy ..."
+    local count=0
+    local found_any=false
+    for log in "${log_files[@]}"; do
+        while IFS= read -r line; do
+            [[ "$line" =~ ^([0-9]{4}-[0-9]{2}-[0-9]{2}\ [0-9]{2}:[0-9]{2}:[0-9]{2})\ +mini-bowling\.sh\ (deploy.*)$ ]] || continue
+            local ts="${BASH_REMATCH[1]}"
+            local args="${BASH_REMATCH[2]}"
+            printf "  %-22s  %s\n" "$ts" "$args"
+            (( count++ ))
+            found_any=true
+            [[ $count -ge $limit ]] && break 2
+        done < "$log"
+    done
+
+    if ! $found_any; then
+        echo "No deploy entries found in logs."
+        echo "  (Logs only capture commands run after logging was introduced.)"
+    else
+        echo
+        echo "  $count deploy(s) shown  |  full logs: mini-bowling.sh logs"
+    fi
 }
 
 require_project_dir() {
@@ -809,16 +856,27 @@ cmd_sketch_info() {
     echo "Commit      : $commit${subject:+  — $subject}"
     echo "Branch      : ${branch:-unknown}"
 
-    # Show how the recorded branch compares to the current repo branch
+    # Compare recorded state to current repo HEAD
     if [[ -d "$PROJECT_DIR/.git" ]]; then
-        local current_branch
+        local current_branch head_commit head_subject
         current_branch=$(git -C "$PROJECT_DIR" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "unknown")
+        head_commit=$(git -C "$PROJECT_DIR" rev-parse --short HEAD 2>/dev/null || echo "")
+        head_subject=$(git -C "$PROJECT_DIR" log -1 --format='%s' 2>/dev/null || echo "")
+
+        echo
+        echo "Repo HEAD   : ${head_commit}${head_subject:+  — $head_subject}  (branch: $current_branch)"
+
         if [[ -n "$branch" && "$branch" != "unknown" && "$branch" != "$current_branch" ]]; then
-            echo
-            echo -e "${YELLOW}Note:${NC} Arduino is running code from branch '$branch',"
-            echo "  but the repo is currently on '$current_branch'."
-        elif [[ "$branch" == "$current_branch" ]]; then
-            echo -e "  ${GREEN}(repo is on the same branch)${NC}"
+            echo -e "${YELLOW}Branch mismatch:${NC} Arduino is on '$branch', repo is on '$current_branch'."
+            echo "  Run: mini-bowling.sh code switch $branch  (to match Arduino)"
+            echo "   or: mini-bowling.sh code sketch upload    (to deploy current branch)"
+        elif [[ -n "$head_commit" && -n "$commit" && "$head_commit" != "$commit" ]]; then
+            local ahead
+            ahead=$(git -C "$PROJECT_DIR" rev-list "${commit}..HEAD" --count 2>/dev/null || echo "?")
+            echo -e "${YELLOW}Deploy needed:${NC} Arduino has $commit, repo HEAD is $head_commit (+${ahead} commit(s))."
+            echo "  Run: mini-bowling.sh deploy"
+        else
+            echo -e "${GREEN}✓ Arduino is up to date with repo HEAD${NC}"
         fi
     fi
 }
@@ -1826,6 +1884,165 @@ backup_config() {
     local total_backups
     total_backups=$(find "$backup_dir" -name "mini-bowling-backup-*.tar.gz" 2>/dev/null | wc -l)
     echo "  Total backups kept: $total_backups / 10"
+}
+
+system_health() {
+    echo "╔══════════════════════════════════════════════════╗"
+    echo "║            mini-bowling System Health            ║"
+    echo "╚══════════════════════════════════════════════════╝"
+    echo
+
+    # 1. Dependencies
+    echo "── Dependencies ─────────────────────────────────────"
+    local deps=(git curl arduino-cli pgrep pkill nohup realpath)
+    local all_deps_ok=true
+    for dep in "${deps[@]}"; do
+        if command -v "$dep" >/dev/null 2>&1; then
+            printf "  ${GREEN}✓${NC}  %s\n" "$dep"
+        else
+            printf "  ${RED}✗${NC}  %s  NOT FOUND\n" "$dep"
+            all_deps_ok=false
+        fi
+    done
+    $all_deps_ok || echo -e "  ${YELLOW}Run 'system doctor' for full diagnostics${NC}"
+    echo
+
+    # 2. Pi status (condensed)
+    echo "── Raspberry Pi ──────────────────────────────────────"
+    echo -n "  Uptime    : "; uptime -p 2>/dev/null || uptime
+    if [[ -f /sys/class/thermal/thermal_zone0/temp ]]; then
+        local raw; raw=$(cat /sys/class/thermal/thermal_zone0/temp)
+        local c=$(( raw / 1000 )) f=$(( raw / 1000 * 9 / 5 + 32 ))
+        if (( c >= 80 )); then
+            echo -e "  CPU Temp  : ${RED}${c}°C / ${f}°F (CRITICAL)${NC}"
+        elif (( c >= 70 )); then
+            echo -e "  CPU Temp  : ${YELLOW}${c}°C / ${f}°F (warm)${NC}"
+        else
+            echo -e "  CPU Temp  : ${GREEN}${c}°C / ${f}°F${NC}"
+        fi
+    fi
+    local mem_total mem_free mem_pct
+    mem_total=$(awk '/MemTotal/    {print $2}' /proc/meminfo)
+    mem_free=$( awk '/MemAvailable/{print $2}' /proc/meminfo)
+    mem_pct=$(( (mem_total - mem_free) * 100 / mem_total ))
+    printf "  Memory    : %s%%  (%s MB used of %s MB)\n" \
+        "$mem_pct" "$(( (mem_total - mem_free) / 1024 ))" "$(( mem_total / 1024 ))"
+    local disk_pct; disk_pct=$(df / 2>/dev/null | awk 'NR==2{print $5}')
+    echo "  Disk (/)  : $disk_pct used"
+    echo
+
+    # 3. ScoreMore
+    echo "── ScoreMore ─────────────────────────────────────────"
+    if pgrep -f "ScoreMore.*AppImage" >/dev/null 2>&1; then
+        echo -e "  ${GREEN}✓${NC}  ScoreMore is running"
+    else
+        echo -e "  ${RED}✗${NC}  ScoreMore is NOT running"
+    fi
+    if [[ -L "$SYMLINK_PATH" && -f "$SYMLINK_PATH" ]]; then
+        local sm_ver; sm_ver=$(basename "$(readlink -f "$SYMLINK_PATH" 2>/dev/null)" | \
+            sed -n "s/^ScoreMore-\\(.*\\)-${ARCH}\\.${EXTENSION}$/\\1/p")
+        echo "     Version : ${sm_ver:-unknown}"
+    else
+        echo -e "  ${YELLOW}!${NC}  No ScoreMore AppImage found at $SYMLINK_PATH"
+    fi
+    local wd_installed=false
+    crontab -l 2>/dev/null | grep -q "# mini-bowling watchdog" && wd_installed=true
+    $wd_installed && echo -e "  ${GREEN}✓${NC}  Watchdog cron active" || \
+        echo -e "  ${YELLOW}-${NC}  Watchdog cron not installed"
+    echo
+
+    # 4. Arduino / sketch
+    echo "── Arduino ───────────────────────────────────────────"
+    if [[ -f "$ARDUINO_STATUS_FILE" ]]; then
+        local sketch uploaded commit branch
+        sketch=$(  sed -n '1p' "$ARDUINO_STATUS_FILE")
+        uploaded=$(sed -n '2p' "$ARDUINO_STATUS_FILE")
+        commit=$(  sed -n '3p' "$ARDUINO_STATUS_FILE")
+        branch=$(  sed -n '5p' "$ARDUINO_STATUS_FILE")
+        echo "  Sketch    : $sketch"
+        echo "  Uploaded  : $uploaded"
+        echo "  Commit    : $commit  (branch: ${branch:-unknown})"
+        # Check if repo HEAD is ahead of what's on the Arduino
+        if [[ -d "$PROJECT_DIR/.git" ]]; then
+            local head_commit
+            head_commit=$(git -C "$PROJECT_DIR" rev-parse --short HEAD 2>/dev/null || echo "")
+            if [[ -n "$head_commit" && "$head_commit" != "$commit" ]]; then
+                echo -e "  ${YELLOW}!${NC}  Repo HEAD ($head_commit) differs — deploy may be needed"
+            else
+                echo -e "  ${GREEN}✓${NC}  Arduino is up to date with repo HEAD"
+            fi
+        fi
+    else
+        echo -e "  ${YELLOW}-${NC}  No upload recorded yet"
+    fi
+    echo
+
+    # 5. Serial logging
+    echo "── Serial logging ────────────────────────────────────"
+    local pid_file="/tmp/mini-bowling-serial.pid"
+    if [[ -f "$pid_file" ]] && kill -0 "$(cat "$pid_file")" 2>/dev/null; then
+        echo -e "  ${GREEN}✓${NC}  Serial logging active (pid $(cat "$pid_file"))"
+    else
+        echo "  -  Serial logging not running"
+    fi
+    echo
+
+    echo "── Cron ──────────────────────────────────────────────"
+    local cron_entries; cron_entries=$(crontab -l 2>/dev/null | grep "mini-bowling" || true)
+    if [[ -n "$cron_entries" ]]; then
+        while IFS= read -r line; do
+            echo "  $line"
+        done <<< "$cron_entries"
+    else
+        echo "  No mini-bowling cron jobs installed"
+    fi
+    echo
+}
+
+system_cron() {
+    echo "=== mini-bowling Cron Jobs ==="
+    echo
+
+    local cron_all; cron_all=$(crontab -l 2>/dev/null || true)
+    if [[ -z "$cron_all" ]]; then
+        echo "No crontab for user $USER."
+        return 0
+    fi
+
+    local cron_entries; cron_entries=$(echo "$cron_all" | grep "mini-bowling" || true)
+    if [[ -z "$cron_entries" ]]; then
+        echo "No mini-bowling cron jobs found."
+        echo
+        echo "To add them:"
+        echo "  mini-bowling.sh scoremore watchdog enable"
+        echo "  mini-bowling.sh deploy schedule HH:MM"
+        return 0
+    fi
+
+    # Parse and describe each entry
+    while IFS= read -r line; do
+        [[ -z "$line" || "$line" == \#* ]] && continue
+        local min hr desc
+        min=$(echo "$line" | awk '{print $1}')
+        hr=$( echo "$line" | awk '{print $2}')
+
+        if echo "$line" | grep -q "# mini-bowling watchdog"; then
+            desc="Watchdog  (restarts ScoreMore if not running)"
+        elif echo "$line" | grep -q "# mini-bowling scheduled deploy"; then
+            local time_str
+            time_str=$(printf "%02d:%02d" "$hr" "$min")
+            desc="Scheduled deploy  (daily at ${time_str})"
+        else
+            desc="(mini-bowling job)"
+        fi
+        printf "  %-45s %s\n" "$line" ""
+        echo "    → $desc"
+        echo
+    done <<< "$cron_entries"
+
+    echo "To manage:"
+    echo "  scoremore watchdog enable|disable|status"
+    echo "  deploy schedule HH:MM  |  deploy unschedule"
 }
 
 # Item 10: doctor - check all required dependencies are present
@@ -2904,6 +3121,90 @@ pi_sysinfo() {
     fi
 }
 
+pi_temp() {
+    local watch=false interval=5
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --watch|-w) watch=true; shift ;;
+            --interval=*) interval="${1#--interval=}"; shift ;;
+            [0-9]*) interval="$1"; shift ;;
+            *) die "Unknown argument: '$1' — usage: pi temp [--watch [interval]]" ;;
+        esac
+    done
+
+    _read_temp() {
+        if [[ -f /sys/class/thermal/thermal_zone0/temp ]]; then
+            local raw; raw=$(cat /sys/class/thermal/thermal_zone0/temp)
+            local c=$(( raw / 1000 )) f=$(( raw / 1000 * 9 / 5 + 32 ))
+            local label color
+            if (( c >= 80 )); then
+                label="CRITICAL — throttling likely"; color="$RED"
+            elif (( c >= 70 )); then
+                label="warm"; color="$YELLOW"
+            elif (( c >= 60 )); then
+                label="ok"; color="$YELLOW"
+            else
+                label="ok"; color="$GREEN"
+            fi
+            echo -e "${color}${c}°C / ${f}°F${NC}  ($label)"
+        else
+            echo "unavailable"
+        fi
+    }
+
+    if $watch; then
+        echo "CPU temperature  (Ctrl+C to exit)"
+        echo "─────────────────────────────────"
+        while true; do
+            printf "\r%-60s" "$(date '+%H:%M:%S')  $(_read_temp)"
+            sleep "$interval"
+        done
+        echo
+    else
+        echo -n "CPU Temp : "; _read_temp
+    fi
+}
+
+pi_disk() {
+    echo "=== Disk Usage ==="
+    echo
+
+    # Overall filesystem
+    echo "Filesystem:"
+    df -h / 2>/dev/null | awk 'NR>1 {printf "  /            %s used of %s  (%s)\n", $3, $2, $5}'
+    echo
+
+    # Key directories
+    echo "Key directories:"
+    local dirs=(
+        "$PROJECT_DIR:Arduino project"
+        "$SCOREMORE_DIR:ScoreMore"
+        "$LOG_DIR:Logs"
+        "${PROJECT_DIR}/build:Build cache"
+        "${PROJECT_DIR}/cache:Compiler cache"
+        "$HOME/.local/share/mini-bowling-script:Script repo"
+    )
+    for entry in "${dirs[@]}"; do
+        local path="${entry%%:*}" label="${entry#*:}"
+        if [[ -d "$path" ]]; then
+            local size; size=$(du -sh "$path" 2>/dev/null | cut -f1)
+            printf "  %-28s %s\n" "$label" "$size"
+        else
+            printf "  %-28s %s\n" "$label" "(not found)"
+        fi
+    done
+
+    echo
+    # ScoreMore AppImage count
+    local appimage_count appimage_size
+    appimage_count=$(find "$SCOREMORE_DIR" -maxdepth 1 -name '*.AppImage' 2>/dev/null | wc -l)
+    appimage_size=$(du -sh "$SCOREMORE_DIR" 2>/dev/null | cut -f1 || echo "?")
+    echo "ScoreMore AppImages : $appimage_count file(s)  ($appimage_size total)"
+    if (( appimage_count > 2 )); then
+        echo -e "  ${YELLOW}Tip:${NC} run 'scoremore history clean' to remove old versions"
+    fi
+}
+
 pi_update() {
     echo -e "${YELLOW}Updating Raspberry Pi OS packages...${NC}"
     sudo apt-get update || die "apt update failed"
@@ -3428,6 +3729,7 @@ Usage: mini-bowling.sh <command> [subcommand] [options]
   deploy --branch <n>   Deploy from a specific branch
   deploy schedule HH:MM Schedule daily deploy at given time
   deploy unschedule     Remove scheduled deploy
+  deploy history [N]    Show last N deploys from logs (default: 20)
 
   code                  Arduino code management
     code sketch upload [--Name]    Compile + upload sketch (default: Everything)
@@ -3475,6 +3777,9 @@ Usage: mini-bowling.sh <command> [subcommand] [options]
   pi                    Raspberry Pi management
     pi status                      CPU temp, memory, disk, uptime, architecture, OS
     pi sysinfo                     Full system identity (hostnamectl)
+    pi temp                        CPU temperature (one-shot)
+    pi temp --watch [N]            CPU temperature live monitor (default: 5s interval)
+    pi disk                        Disk usage by key directory
     pi update                      Run apt update + upgrade
     pi reboot                      Reboot (5-second countdown, checks sudo first)
     pi shutdown                    Shut down (5-second countdown, checks sudo first)
@@ -3505,6 +3810,8 @@ Usage: mini-bowling.sh <command> [subcommand] [options]
     script update                  Update script from GitHub (syntax-checked)
 
   system                System administration
+    system health                  Full system health summary (quick overview)
+    system cron                    Show all mini-bowling cron jobs
     system doctor                  Check dependencies, directories, dialout group
     system preflight               9 pre-deploy checks (--quick skips network)
     system backup                  Backup sketches + config (--include-appimage)
@@ -3525,8 +3832,10 @@ Examples:
   mini-bowling.sh status
   mini-bowling.sh status --watch
   mini-bowling.sh info
+  mini-bowling.sh system health
   mini-bowling.sh deploy
   mini-bowling.sh deploy --dry-run
+  mini-bowling.sh deploy history
   mini-bowling.sh deploy schedule 02:30
   mini-bowling.sh deploy unschedule
 
@@ -3581,6 +3890,8 @@ Examples:
   mini-bowling.sh scoremore watchdog status
 
   ── System ─────────────────────────────────────────────────────────
+  mini-bowling.sh system health
+  mini-bowling.sh system cron
   mini-bowling.sh system doctor
   mini-bowling.sh system preflight
   mini-bowling.sh system preflight --quick
@@ -3596,8 +3907,13 @@ Examples:
   mini-bowling.sh install cli
   mini-bowling.sh script version
   mini-bowling.sh script update
+
+  ── Pi ─────────────────────────────────────────────────────────────
   mini-bowling.sh pi status
   mini-bowling.sh pi sysinfo
+  mini-bowling.sh pi temp
+  mini-bowling.sh pi temp --watch
+  mini-bowling.sh pi disk
   mini-bowling.sh pi update
   mini-bowling.sh pi reboot
   mini-bowling.sh pi shutdown
@@ -3624,10 +3940,10 @@ EOF
         status|info|version|logs)
             _log=false ;;
         system)
-            # system doctor/preflight/ports/tail-all/wait-for-network are read-only
-            # system backup/repair/cleanup/install/script DO modify state - log those
+            # system doctor/preflight/ports/tail-all/wait-for-network/health/cron are read-only
+            # system backup/repair/cleanup DO modify state - log those
             case "${2:-}" in
-                doctor|preflight|ports|tail-all|wait-for-network)
+                health|cron|doctor|preflight|ports|tail-all|wait-for-network)
                     _log=false ;;
             esac ;;
         scoremore)
@@ -3639,9 +3955,9 @@ EOF
                     [[ "${3:-}" == "status" ]] && _log=false ;;
             esac ;;
         pi)
-            # pi status/sysinfo/wifi are read-only; pi vnc status is read-only
+            # pi status/sysinfo/temp/disk/wifi are read-only; pi vnc status is read-only
             case "${2:-}" in
-                status|sysinfo|wifi)
+                status|sysinfo|temp|disk|wifi)
                     _log=false ;;
                 vnc)
                     [[ "${3:-}" == "status" ]] && _log=false ;;
@@ -3657,6 +3973,8 @@ EOF
                     [[ "${3:-}" == "list" || "${3:-}" == "info" ]] && _log=false ;;
                 compile|console) _log=false ;;
             esac ;;
+        deploy)
+            [[ "${2:-}" == "history" ]] && _log=false ;;
         script)
             # script version is read-only
             [[ "${2:-}" == "version" ]] && _log=false ;;
@@ -3750,7 +4068,7 @@ _dispatch() {
             local subcmd="${1:-run}"
             # If first arg looks like a flag, treat as bare deploy
             [[ "${1:-}" == --* || -z "${1:-}" ]] && subcmd="run"
-            [[ "$subcmd" != "run" && "$subcmd" != "schedule" && "$subcmd" != "unschedule" ]] && subcmd="run"
+            [[ "$subcmd" != "run" && "$subcmd" != "schedule" && "$subcmd" != "unschedule" && "$subcmd" != "history" ]] && subcmd="run"
             case "$subcmd" in
                 run)
                     cmd_deploy "$@"
@@ -3761,6 +4079,9 @@ _dispatch() {
                     ;;
                 unschedule)
                     unschedule_deploy
+                    ;;
+                history)
+                    deploy_history "$@"
                     ;;
             esac
             ;;
@@ -4014,6 +4335,8 @@ _dispatch() {
         system)
             local subcmd="${1:-help}"; shift 2>/dev/null || true
             case "$subcmd" in
+                health)           system_health ;;
+                cron)             system_cron ;;
                 doctor)           doctor ;;
                 preflight)        preflight "$@" ;;
                 backup)           backup_config "$@" ;;
@@ -4051,6 +4374,8 @@ _dispatch() {
                     ;;
                 *)
                     echo "system subcommands:"
+                    echo "  health                  full system health summary"
+                    echo "  cron                    show all mini-bowling cron jobs"
                     echo "  doctor                  check dependencies and dialout group"
                     echo "  preflight [--quick]     pre-deploy checks"
                     echo "  backup [--include-appimage]  archive sketches + config"
@@ -4073,6 +4398,8 @@ _dispatch() {
             case "$subcmd" in
                 status)   pi_status ;;
                 sysinfo)  pi_sysinfo ;;
+                temp)     pi_temp "$@" ;;
+                disk)     pi_disk ;;
                 update)   pi_update ;;
                 reboot)   pi_reboot ;;
                 shutdown) pi_shutdown ;;
@@ -4091,7 +4418,7 @@ _dispatch() {
                     esac
                     ;;
                 *)
-                    die "Unknown pi subcommand: '$subcmd' — use: status, sysinfo, update, reboot, shutdown, wifi, vnc"
+                    die "Unknown pi subcommand: '$subcmd' — use: status, sysinfo, temp, disk, update, reboot, shutdown, wifi, vnc"
                     ;;
             esac
             ;;

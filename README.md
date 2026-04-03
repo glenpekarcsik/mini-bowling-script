@@ -20,6 +20,7 @@ version                        Show version + check GitHub for updates
 deploy [--flags]               Pull → upload Everything → restart ScoreMore
 deploy schedule HH:MM          Schedule daily deploy
 deploy unschedule              Remove scheduled deploy
+deploy history [N]             Show last N deploys from logs (default: 20)
 
 code sketch upload [--Name]    Compile + upload sketch (default: Everything)
 code sketch list               List available sketches
@@ -51,11 +52,15 @@ scoremore logs [tail|dump]     View ScoreMore application logs
 scoremore watchdog run|enable|disable|status  ScoreMore crash watchdog
 
 pi status|sysinfo|update|reboot|shutdown  Raspberry Pi management
+pi temp [--watch [N]]                     CPU temperature (live monitor with --watch)
+pi disk                                   Disk usage by key directory
 pi wifi                                   Wi-Fi diagnostics
 pi vnc status|start|stop|enable|disable   VNC management
 
 logs [follow|dump|tail|clean]  Log file management (--date YYYY-MM-DD for specific day)
 
+system health                  Full system health dashboard
+system cron                    Show all mini-bowling cron jobs
 system doctor                  Check dependencies + dialout group
 system preflight [--quick]     9 pre-deploy checks
 system backup [--include-appimage]  Archive sketches + config
@@ -98,14 +103,20 @@ script version|update
 **Diagnostics & Monitoring**
 - Live-refreshing status with `status --watch [N]`
 - Dense single-screen summary combining hardware, app, and Pi health (`info`)
+- Full system health dashboard — deps, Pi vitals, ScoreMore, Arduino sketch state, serial, cron (`system health`)
+- Deploy history from logs — timestamps and args for last N deploys (`deploy history`)
+- `code sketch info` shows repo HEAD vs Arduino commit and tells you if a deploy is needed
 - Pre-flight check with `--quick` flag to skip network checks (`system preflight`)
 - Dependency checker with `dialout` group membership and re-login detection (`system doctor`)
+- All mini-bowling cron jobs listed with human-readable descriptions (`system cron`)
 - Auto-repair of common broken states (`system repair`)
 - Serial port listing with USB vendor/product info (`system ports`)
 - Interleaved live tail of command log and Arduino serial log (`system tail-all`)
 
 **Raspberry Pi**
 - Pi health, OS updates, reboot, and shutdown — sudo checked upfront (`pi status|update|reboot|shutdown`)
+- CPU temperature one-shot or live monitor with color-coded warning levels (`pi temp [--watch]`)
+- Disk usage breakdown by key directory with AppImage cleanup tip (`pi disk`)
 - Wi-Fi diagnostics (`pi wifi`)
 - Full VNC management — status, start/stop, autostart (`pi vnc`)
 
@@ -205,6 +216,7 @@ Done.
 | `deploy` | Pull latest → upload Everything → restart ScoreMore | `--dry-run` \| `--no-kill` \| `--branch <n>` | `mini-bowling.sh deploy` |
 | `deploy schedule` | Schedule daily deploy | `HH:MM` | `mini-bowling.sh deploy schedule 02:30` |
 | `deploy unschedule` | Remove scheduled deploy | — | `mini-bowling.sh deploy unschedule` |
+| `deploy history` | Show last N deploys from logs | `[N]` (default: 20) | `mini-bowling.sh deploy history 10` |
 | `code sketch upload` | Compile + upload sketch (default: Everything) | `[--Name]` \| `--branch <n>` \| `--no-kill` | `mini-bowling.sh code sketch upload --Master_Test` |
 | `code sketch list` | List available sketch folders | — | `mini-bowling.sh code sketch list` |
 | `code sketch test` | Compile only — no upload | `[--Name]` | `mini-bowling.sh code sketch test --Everything` |
@@ -233,6 +245,8 @@ Done.
 | `scoremore logs` | List/tail/dump ScoreMore application logs | `show` \| `tail` \| `dump` | `mini-bowling.sh scoremore logs tail` |
 | `pi status` | CPU temp, memory, disk, uptime, architecture, OS | — | `mini-bowling.sh pi status` |
 | `pi sysinfo` | Full system identity (hostnamectl) | — | `mini-bowling.sh pi sysinfo` |
+| `pi temp` | CPU temperature with color-coded warning levels | `--watch [N]` | `mini-bowling.sh pi temp --watch` |
+| `pi disk` | Disk usage by key directory | — | `mini-bowling.sh pi disk` |
 | `pi update` | Run apt update + upgrade | — | `mini-bowling.sh pi update` |
 | `pi reboot` | Reboot with 5-second countdown | — | `mini-bowling.sh pi reboot` |
 | `pi shutdown` | Shut down with 5-second countdown | — | `mini-bowling.sh pi shutdown` |
@@ -247,6 +261,8 @@ Done.
 | `logs dump` | Full output of today's log | `--date YYYY-MM-DD` | `mini-bowling.sh logs dump --date 2026-03-06` |
 | `logs tail` | Last N lines of today's log | `[N]` \| `--date YYYY-MM-DD` | `mini-bowling.sh logs tail 100 --date 2026-03-06` |
 | `logs clean` | Delete log files (confirms first) | `--keep N` | `mini-bowling.sh logs clean --keep 7` |
+| `system health` | Full system health dashboard | — | `mini-bowling.sh system health` |
+| `system cron` | Show all mini-bowling cron jobs | — | `mini-bowling.sh system cron` |
 | `system doctor` | Check dependencies + dialout group | — | `mini-bowling.sh system doctor` |
 | `system preflight` | 9 pre-deploy checks | `--quick` \| `-q` | `mini-bowling.sh system preflight --quick` |
 | `system backup` | Archive sketches + config | `--include-appimage` | `mini-bowling.sh system backup` |
@@ -272,10 +288,13 @@ mini-bowling.sh scoremore restart    # ScoreMore frozen? Kill and relaunch
 mini-bowling.sh status               # What's running right now?
 mini-bowling.sh status --watch       # Auto-refresh every 5 seconds
 mini-bowling.sh info                 # Full picture: hardware + app + Pi
+mini-bowling.sh system health        # Full system health dashboard
 mini-bowling.sh system repair        # Fix common broken states automatically
+mini-bowling.sh system cron          # What cron jobs are installed?
 mini-bowling.sh system ports         # Which serial ports exist?
 mini-bowling.sh system preflight --quick  # Ready to deploy? (fast, no network)
 mini-bowling.sh code sketch test     # Does Everything compile?
+mini-bowling.sh code sketch info     # What's on the Arduino? Is it up to date?
 mini-bowling.sh system tail-all      # What did the script do + what did Arduino say?
 mini-bowling.sh scoremore logs tail  # What is ScoreMore itself logging?
 
@@ -286,6 +305,7 @@ mini-bowling.sh deploy               # Pull latest, upload Everything, restart S
 mini-bowling.sh deploy --branch testing
 mini-bowling.sh deploy schedule 02:30
 mini-bowling.sh deploy unschedule
+mini-bowling.sh deploy history       # What deploys have run recently?
 
 # ── Sketch & branch ───────────────────────────────────────────────────────────
 
@@ -348,8 +368,10 @@ mini-bowling.sh scoremore watchdog enable
 mini-bowling.sh scoremore watchdog disable
 mini-bowling.sh scoremore watchdog status
 
-# ── System & Pi ───────────────────────────────────────────────────────────────
+# ── System ────────────────────────────────────────────────────────────────────
 
+mini-bowling.sh system health
+mini-bowling.sh system cron
 mini-bowling.sh system doctor
 mini-bowling.sh system preflight
 mini-bowling.sh system preflight --quick
@@ -363,8 +385,14 @@ mini-bowling.sh install create-dir
 mini-bowling.sh install cli
 mini-bowling.sh script version
 mini-bowling.sh script update
+
+# ── Pi ────────────────────────────────────────────────────────────────────────
+
 mini-bowling.sh pi status
 mini-bowling.sh pi sysinfo
+mini-bowling.sh pi temp
+mini-bowling.sh pi temp --watch
+mini-bowling.sh pi disk
 mini-bowling.sh pi update
 mini-bowling.sh pi reboot
 mini-bowling.sh pi shutdown
@@ -550,6 +578,10 @@ Serial logs auto-rotate at 10MB. The console is blocked if serial logging is act
 ```bash
 mini-bowling.sh pi status      # CPU temp, memory, disk, uptime, architecture, OS
 mini-bowling.sh pi sysinfo     # full system identity (hostnamectl)
+mini-bowling.sh pi temp        # CPU temperature (one-shot, color-coded)
+mini-bowling.sh pi temp --watch       # live CPU temperature monitor (5s refresh)
+mini-bowling.sh pi temp --watch 10    # live monitor, 10s interval
+mini-bowling.sh pi disk        # disk usage: project, ScoreMore, logs, build cache
 mini-bowling.sh pi update      # apt update + upgrade
 mini-bowling.sh pi reboot      # 5-second countdown (checks sudo first)
 mini-bowling.sh pi shutdown    # 5-second countdown (checks sudo first)
@@ -606,10 +638,7 @@ mini-bowling.sh <TAB>
 →  status  info  version  deploy  code  scoremore  pi  logs  system  install  script
 
 mini-bowling.sh code <TAB>
-→  sketch  branch
-
-mini-bowling.sh code <TAB>
-→  sketch  branch  compile  pull  switch
+→  sketch  branch  compile  pull  switch  console
 
 mini-bowling.sh code sketch <TAB>
 →  upload  list  test  rollback
@@ -632,8 +661,17 @@ mini-bowling.sh scoremore autostart <TAB>
 mini-bowling.sh scoremore watchdog <TAB>
 →  run  enable  disable  status
 
+mini-bowling.sh deploy <TAB>
+→  --dry-run  --no-kill  --branch  schedule  unschedule  history
+
+mini-bowling.sh pi <TAB>
+→  status  sysinfo  temp  disk  update  reboot  shutdown  wifi  vnc
+
+mini-bowling.sh pi temp <TAB>
+→  --watch
+
 mini-bowling.sh system <TAB>
-→  doctor  preflight  backup  repair  cleanup  ports  tail-all  serial  wait-for-network
+→  health  cron  doctor  preflight  backup  repair  cleanup  ports  tail-all  serial  wait-for-network
 
 mini-bowling.sh install <TAB>
 →  setup  create-dir  cli
@@ -682,16 +720,40 @@ The commands most useful at the bowling alley when something needs fixing:
 mini-bowling.sh scoremore restart        # ScoreMore frozen? Kill and relaunch
 mini-bowling.sh status                   # What's running right now?
 mini-bowling.sh status --watch           # Auto-refresh every 5 seconds
+mini-bowling.sh system health            # Full health dashboard in one shot
 mini-bowling.sh info                     # Full picture at a glance
+mini-bowling.sh code sketch info         # What's on the Arduino? Deploy needed?
+mini-bowling.sh deploy history           # What deploys have run recently?
 mini-bowling.sh system repair            # Fix common broken states
+mini-bowling.sh system cron              # What cron jobs are installed?
 mini-bowling.sh system ports             # Which serial ports exist?
 mini-bowling.sh system preflight --quick # Ready to deploy? (fast)
 mini-bowling.sh code sketch test         # Does the sketch compile?
 mini-bowling.sh system tail-all          # Script log + Arduino log together
 mini-bowling.sh scoremore logs tail      # ScoreMore application logs
+mini-bowling.sh pi temp --watch          # Is the Pi running hot?
+mini-bowling.sh pi disk                  # How full is the disk?
 ```
 
 ## Changelog
+
+### v4.4.0
+
+**New commands**
+
+- `system health` — full dashboard: deps, Pi vitals, ScoreMore status, Arduino sketch state, serial logging, cron jobs
+- `system cron` — lists all mini-bowling cron entries with human-readable descriptions (watchdog, scheduled deploy)
+- `deploy history [N]` — parses log files and shows last N deploy timestamps + args (default: 20)
+- `pi temp [--watch [N]]` — CPU temperature one-shot or live monitor with color-coded warning levels (green/yellow/red)
+- `pi disk` — disk breakdown by key directory (project, ScoreMore, logs, build cache, script repo) with AppImage count tip
+
+**Enhancements**
+
+- `code sketch info` now shows repo HEAD commit alongside the Arduino's recorded commit, with explicit "deploy needed (+N commits)" or "up to date" status
+- `script update` now also updates the tab completion file if previously installed (checks `/etc/bash_completion.d/`, `/usr/share/bash-completion/completions/`, `/usr/local/share/bash-completion/completions/`)
+- `script update` now updates `mini-bowling` (no `.sh`) in the same bin directory if a separate copy exists
+
+---
 
 ### v4.0.0
 

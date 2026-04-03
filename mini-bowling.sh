@@ -546,7 +546,7 @@ print_status() {
     # OS package update check (uses local apt cache — no sudo, no network)
     if command -v apt-get >/dev/null 2>&1; then
         local pkg_count
-        pkg_count=$(apt-get -s upgrade 2>/dev/null | grep "^Inst " | wc -l)
+        pkg_count=$(apt-get -s upgrade 2>/dev/null | { grep "^Inst " || true; } | wc -l)
         if [[ -f /var/run/reboot-required ]]; then
             echo -e "OS updates  : ${YELLOW}reboot required to apply pending updates${NC}"
         elif [[ "$pkg_count" -gt 0 ]]; then

@@ -19,12 +19,13 @@ IFS=$'\n\t'
 # ------------------------------------------------
 
 readonly DEFAULT_GIT_BRANCH="main"
-readonly SCRIPT_VERSION="4.7.0"
+readonly SCRIPT_VERSION="4.8.0"
 readonly SCRIPT_REPO="https://github.com/glenpekarcsik/mini-bowling-script.git"
 readonly PROJECT_REPO="https://github.com/mini-bowling/mini-bowling.git"
 readonly PROJECT_DIR="${MINI_BOWLING_DIR:-$HOME/Documents/Bowling/Arduino/mini-bowling}"
 readonly DEFAULT_PORT="/dev/ttyACM0"
 readonly BOARD="arduino:avr:mega"
+readonly ARDUINO_CORE="arduino:avr"
 
 readonly SCOREMORE_DIR="$HOME/Documents/Bowling/ScoreMore"
 readonly BASE_URL="https://scoremorebowling.b-cdn.net/downloads"
@@ -295,7 +296,7 @@ deploy_history() {
             local ts="${BASH_REMATCH[1]}"
             local args="${BASH_REMATCH[2]}"
             printf "  %-22s  %s\n" "$ts" "$args"
-            (( count++ ))
+            (( ++count ))
             found_any=true
             [[ $count -ge $limit ]] && break 2
         done < "$log"
@@ -325,6 +326,30 @@ require_git_repo() {
 require_arduino_cli() {
     command -v arduino-cli >/dev/null 2>&1 || \
         die "arduino-cli not found. Run: mini-bowling.sh install cli"
+}
+
+arduino_core_installed() {
+    command -v arduino-cli >/dev/null 2>&1 || return 1
+    arduino-cli core list 2>/dev/null | awk '{print $1}' | grep -qx "$ARDUINO_CORE"
+}
+
+require_arduino_core() {
+    arduino_core_installed || \
+        die "Arduino core missing: $ARDUINO_CORE. Run: arduino-cli core install $ARDUINO_CORE"
+}
+
+install_arduino_core() {
+    require_arduino_cli
+
+    if arduino_core_installed; then
+        echo -e "${GREEN}→ Arduino core already installed:${NC} $ARDUINO_CORE"
+        return 0
+    fi
+
+    echo "→ Installing Arduino core: $ARDUINO_CORE"
+    arduino-cli core install "$ARDUINO_CORE" || \
+        die "Failed to install Arduino core: $ARDUINO_CORE"
+    echo -e "${GREEN}✓ Arduino core installed:${NC} $ARDUINO_CORE"
 }
 
 find_arduino_port() {
@@ -366,6 +391,45 @@ verify_arduino_port() {
     echo -e "${GREEN}→ Arduino detected on $port${NC}"
 }
 
+resolve_display() {
+    local display="${DISPLAY:-}"
+    if [[ -z "$display" ]]; then
+        # Try to find a display from any logged-in X session without relying on grep -P.
+        display=$(who 2>/dev/null | awk '
+            {
+                if (match($NF, /:[0-9]+/)) {
+                    print substr($NF, RSTART, RLENGTH)
+                    exit
+                }
+            }
+        ' || true)
+    fi
+
+    if [[ -z "$display" ]]; then
+        display=":0"
+        echo -e "${YELLOW}Warning: DISPLAY not set — defaulting to :0. If ScoreMore doesn't appear, set DISPLAY manually.${NC}"
+    fi
+
+    echo "$display"
+}
+
+extract_scoremore_version() {
+    local page="${1:-}"
+    local version=""
+
+    version=$(printf '%s\n' "$page" | \
+        sed -n "s/.*ScoreMore-\\([0-9][0-9.]*\\)-${ARCH}\\.${EXTENSION}.*/\\1/p" | \
+        head -1)
+
+    if [[ -z "$version" ]]; then
+        version=$(printf '%s\n' "$page" | \
+            sed -n 's/.*ScoreMore \([0-9][0-9.]*\),\{0,1\} Latest.*/\1/p' | \
+            head -1)
+    fi
+
+    echo "$version"
+}
+
 kill_scoremore_gracefully() {
     # Target the AppImage launcher by full path - killing the parent brings down
     # the entire Electron process tree that spawns under /tmp/.mount_ScoreM*/
@@ -401,18 +465,8 @@ kill_scoremore_gracefully() {
 
 # Pure launcher - callers are responsible for killing ScoreMore first if needed
 start_scoremore() {
-    # Detect the active X display - prefer DISPLAY from environment, fall back to
-    # scanning for a logged-in user's session, then default to :0
-    local display="${DISPLAY:-}"
-    if [[ -z "$display" ]]; then
-        # Try to find a display from any logged-in X session
-        display=$(who | awk '{print $NF}' | grep -oP ':\d+' | head -1 || true)
-    fi
-    if [[ -z "$display" ]]; then
-        display=":0"
-        echo -e "${YELLOW}Warning: DISPLAY not set — defaulting to :0. If ScoreMore doesn't appear, set DISPLAY manually.${NC}"
-    fi
-
+    local display
+    display=$(resolve_display)
     export DISPLAY="$display"
     # Redirect output to avoid nohup.out clutter; disown so it survives terminal close
     nohup "$HOME/Desktop/ScoreMore.AppImage" > /dev/null 2>&1 &
@@ -614,9 +668,10 @@ download_scoremore_version() {
     local filename="${APP_NAME}-${full_ver}-${ARCH}.${EXTENSION}"
     local url="${BASE_URL}/${folder_ver}/${filename}"
 
-    # Ensure directory exists, then cd into it
+    # Ensure directory exists
     mkdir -p "$SCOREMORE_DIR" || die "Cannot create $SCOREMORE_DIR"
-    cd "$SCOREMORE_DIR"       || die "Cannot cd to $SCOREMORE_DIR"
+
+    local filepath="$SCOREMORE_DIR/$filename"
 
     # Item 2: check available disk space (require at least 300MB free)
     local avail_kb
@@ -627,9 +682,9 @@ download_scoremore_version() {
         die "Insufficient disk space: ${avail_mb}MB free, 300MB required. Free up space and try again."
     fi
 
-    if [[ -e "$filename" ]]; then
+    if [[ -e "$filepath" ]]; then
         echo "\"$filename\" exists, removing the file"
-        rm -- "$filename"
+        rm -- "$filepath"
     fi
 
     echo -e "${YELLOW}Downloading:${NC} $filename"
@@ -638,7 +693,7 @@ download_scoremore_version() {
     # Capture curl exit code properly
     local curl_exit=0
     curl --fail --location --progress-bar --continue-at - \
-         --output "$filename" "$url" || curl_exit=$?
+         --output "$filepath" "$url" || curl_exit=$?
 
     if (( curl_exit != 0 )); then
         echo -e "${RED}Download failed${NC} (curl code $curl_exit)"
@@ -647,20 +702,20 @@ download_scoremore_version() {
     fi
 
     echo -e "\n${GREEN}✓ Downloaded:${NC} $filename"
-    ls -lh -- "$filename" 2>/dev/null
-    chmod +x -- "$filename" && echo -e "${GREEN}→ Made executable${NC}"
+    ls -lh -- "$filepath" 2>/dev/null
+    chmod +x -- "$filepath" && echo -e "${GREEN}→ Made executable${NC}"
 
     # Item 6: verify file is not empty or truncated
     local file_size
-    file_size=$(stat -c%s "$filename" 2>/dev/null || stat -f%z "$filename" 2>/dev/null || echo 0)
+    file_size=$(stat -c%s "$filepath" 2>/dev/null || stat -f%z "$filepath" 2>/dev/null || echo 0)
     if (( file_size < 1048576 )); then
         die "Downloaded file is suspiciously small (${file_size} bytes) — download may be corrupt"
     fi
 
     # Show hash for manual verification
     echo "SHA256:"
-    command -v sha256sum >/dev/null && sha256sum -- "$filename" || \
-    command -v shasum    >/dev/null && shasum -a 256 -- "$filename" || \
+    command -v sha256sum >/dev/null && sha256sum -- "$filepath" || \
+    command -v shasum    >/dev/null && shasum -a 256 -- "$filepath" || \
         echo "  (no sha256 tool available)"
 
     kill_scoremore_gracefully
@@ -668,7 +723,7 @@ download_scoremore_version() {
 
     # Verify the AppImage is executable before switching the symlink
     echo "Verifying AppImage..."
-    local appimage_path="$SCOREMORE_DIR/$filename"
+    local appimage_path="$filepath"
     if ! timeout 10 "$appimage_path" --version >/dev/null 2>&1 && \
        ! timeout 10 "$appimage_path" --appimage-version >/dev/null 2>&1; then
         # AppImage may not support --version but should at least be executable
@@ -824,7 +879,7 @@ list_available_sketches() {
                 printf "  %2d)  %-24s   →  %s\n" "$count" "$sketch_name" "$ino_name"
             fi
         fi
-    done < <(find . -mindepth 1 -maxdepth 1 -type d -print0 2>/dev/null | sort -z)
+    done < <(find "$PROJECT_DIR" -mindepth 1 -maxdepth 1 -type d -print0 2>/dev/null | sort -z)
 
     if ! $found; then
         echo "→ No sketch folders containing .ino files were found."
@@ -903,12 +958,8 @@ cmd_config_tool() {
   Is the Arduino project cloned? Run: mini-bowling.sh code branch update"
     fi
 
-    # Resolve display the same way start_scoremore does
-    local display="${DISPLAY:-}"
-    if [[ -z "$display" ]]; then
-        display=$(who | awk '{print $NF}' | grep -oP ':\d+' | head -1 || true)
-    fi
-    [[ -z "$display" ]] && display=":0"
+    local display
+    display=$(resolve_display)
     export DISPLAY="$display"
 
     # Find a browser — prefer chromium for kiosk-style Pi use
@@ -1012,6 +1063,46 @@ cmd_code_status() {
     fi
 }
 
+cmd_code_board() {
+    require_arduino_cli
+
+    echo "=== Detected Arduino Boards ==="
+    echo
+
+    local board_list
+    board_list=$(arduino-cli board list 2>/dev/null) || \
+        die "arduino-cli board list failed — is arduino-cli installed?"
+
+    echo "$board_list"
+    echo
+
+    # Highlight whether the expected port/board is found
+    local port; port=$(find_arduino_port 2>/dev/null || echo "")
+
+    if [[ -z "$port" ]]; then
+        echo -e "${YELLOW}!${NC}  Expected port ($DEFAULT_PORT) not detected"
+        echo "   Check USB cable or run: system ports"
+    else
+        # Check if the expected board FQBN appears on that port
+        if echo "$board_list" | grep -q "$port"; then
+            local board_line; board_line=$(echo "$board_list" | grep "$port")
+            if echo "$board_line" | grep -qi "mega\|avr\|arduino"; then
+                echo -e "${GREEN}✓${NC}  Arduino detected on $port"
+            else
+                echo -e "${YELLOW}!${NC}  Device on $port — board type not recognized as Arduino Mega"
+                echo "   Expected FQBN: $BOARD"
+            fi
+        else
+            echo -e "${YELLOW}!${NC}  Port $port found but not listed by arduino-cli"
+            echo "   Try: system ports"
+        fi
+    fi
+
+    echo
+    echo "Expected board : $BOARD"
+    echo "Expected port  : ${port:-$DEFAULT_PORT}"
+}
+
 cmd_update() {
     require_git_repo
 
@@ -1036,6 +1127,7 @@ cmd_compile_and_upload() {
 
     require_project_dir
     require_arduino_cli
+    require_arduino_core
 
     # Verify port and board BEFORE killing ScoreMore - no point killing the app
     # if the Arduino isn't reachable
@@ -1645,6 +1737,7 @@ cmd_test_upload() {
 
     require_project_dir
     require_arduino_cli
+    require_arduino_core
 
     local sketch_path="${PROJECT_DIR}/${sketch_dir}"
     if [[ ! -d "$sketch_path" ]]; then
@@ -1703,9 +1796,19 @@ scoremore_logs() {
         sm_pid=$(pgrep -f "ScoreMore.AppImage" 2>/dev/null | head -1 || true)
         if [[ -n "$sm_pid" ]]; then
             local proc_log_dir
-            proc_log_dir=$(ls -d /proc/"$sm_pid"/fd 2>/dev/null && \
-                ls -la /proc/"$sm_pid"/fd 2>/dev/null | \
-                grep -oP '/\S+\.log' | grep -i score | head -1 | xargs dirname 2>/dev/null || true)
+            proc_log_dir=$(ls -la /proc/"$sm_pid"/fd 2>/dev/null | \
+                awk '
+                    {
+                        for (i = 1; i <= NF; i++) {
+                            path = $i
+                            if (path ~ /^\/[^[:space:]]+\.log$/ && tolower(path) ~ /score/) {
+                                sub(/\/[^/]+$/, "", path)
+                                print path
+                                exit
+                            }
+                        }
+                    }
+                ' || true)
             [[ -n "$proc_log_dir" && -d "$proc_log_dir" ]] && log_dir="$proc_log_dir"
         fi
     fi
@@ -2017,17 +2120,145 @@ backup_config() {
     echo "  Total backups kept: $total_backups / 10"
 }
 
+system_report() {
+    local report_dir="$HOME/Documents/Bowling/reports"
+    local timestamp; timestamp=$(date '+%Y-%m-%d_%H-%M-%S')
+    local report_file="$report_dir/mini-bowling-report-${timestamp}.txt"
+
+    mkdir -p "$report_dir" || die "Cannot create report directory: $report_dir"
+
+    echo "Generating system report..."
+
+    {
+        echo "================================================================"
+        echo "  mini-bowling System Report"
+        echo "  Generated : $(date '+%Y-%m-%d %H:%M:%S')"
+        echo "  Host      : $(hostname 2>/dev/null)"
+        echo "  Version   : mini-bowling.sh $SCRIPT_VERSION"
+        echo "================================================================"
+        echo
+
+        # --- System identity ---
+        echo "── System ──────────────────────────────────────────────────────"
+        uname -a 2>/dev/null || true
+        if [[ -f /etc/os-release ]]; then
+            grep -E "^(PRETTY_NAME|VERSION)" /etc/os-release | sed 's/^/  /'
+        fi
+        echo "  Uptime: $(uptime -p 2>/dev/null || uptime)"
+        echo
+
+        # --- Pi vitals ---
+        echo "── Raspberry Pi ────────────────────────────────────────────────"
+        if [[ -f /sys/class/thermal/thermal_zone0/temp ]]; then
+            local raw; raw=$(cat /sys/class/thermal/thermal_zone0/temp)
+            echo "  CPU temp  : $(( raw / 1000 ))°C"
+        fi
+        awk '/MemTotal/{t=$2} /MemAvailable/{a=$2} END{printf "  Memory    : %d MB used of %d MB (%d%%)\n", (t-a)/1024, t/1024, (t-a)*100/t}' /proc/meminfo
+        df -h / 2>/dev/null | awk 'NR==2{printf "  Disk /    : %s used of %s (%s)\n", $3, $2, $5}'
+        echo
+
+        # --- Arduino ---
+        echo "── Arduino ─────────────────────────────────────────────────────"
+        if [[ -f "$ARDUINO_STATUS_FILE" ]]; then
+            echo "  Sketch   : $(sed -n '1p' "$ARDUINO_STATUS_FILE")"
+            echo "  Uploaded : $(sed -n '2p' "$ARDUINO_STATUS_FILE")"
+            echo "  Commit   : $(sed -n '3p' "$ARDUINO_STATUS_FILE")"
+            echo "  Branch   : $(sed -n '5p' "$ARDUINO_STATUS_FILE")"
+        else
+            echo "  No upload on record"
+        fi
+        if [[ -d "$PROJECT_DIR/.git" ]]; then
+            echo "  Repo HEAD: $(git -C "$PROJECT_DIR" log --oneline -1 2>/dev/null)"
+            echo "  Branch   : $(git -C "$PROJECT_DIR" rev-parse --abbrev-ref HEAD 2>/dev/null)"
+        fi
+        local port; port=$(find_arduino_port 2>/dev/null || echo "not found")
+        echo "  Port     : $port"
+        echo
+
+        # --- ScoreMore ---
+        echo "── ScoreMore ───────────────────────────────────────────────────"
+        if pgrep -f "ScoreMore.*AppImage" >/dev/null 2>&1; then
+            echo "  Running  : yes (pid $(pgrep -f "ScoreMore.*AppImage" | head -1))"
+        else
+            echo "  Running  : no"
+        fi
+        if [[ -L "$SYMLINK_PATH" ]]; then
+            local sm_ver
+            sm_ver=$(basename "$(readlink -f "$SYMLINK_PATH" 2>/dev/null)" | \
+                sed -n "s/^ScoreMore-\\(.*\\)-${ARCH}\\.${EXTENSION}$/\\1/p")
+            echo "  Version  : ${sm_ver:-unknown}"
+        else
+            echo "  Version  : no AppImage found"
+        fi
+        local autostart_file="$HOME/.config/autostart/scoremore.desktop"
+        echo "  Autostart: $([[ -f "$autostart_file" ]] && echo "enabled" || echo "disabled")"
+        echo
+
+        # --- Cron jobs ---
+        echo "── Cron Jobs ───────────────────────────────────────────────────"
+        local cron_entries; cron_entries=$(crontab -l 2>/dev/null | { grep "mini-bowling" || true; })
+        if [[ -n "$cron_entries" ]]; then
+            echo "$cron_entries" | sed 's/^/  /'
+        else
+            echo "  No mini-bowling cron jobs"
+        fi
+        echo
+
+        # --- Recent deploys ---
+        echo "── Recent Deploys (last 10) ────────────────────────────────────"
+        local found=0
+        for log_file in "$LOG_DIR"/mini-bowling-*.log; do
+            [[ -f "$log_file" ]] || continue
+            { grep -h "mini-bowling.sh deploy" "$log_file" || true; } | \
+                grep -v "\-\-dry-run\|unschedule\|schedule\|history" || true
+        done | sort -r | head -10 | sed 's/^/  /' || true
+        echo
+
+        # --- Last 50 log lines ---
+        echo "── Recent Log (last 50 lines) ──────────────────────────────────"
+        local latest_log
+        latest_log=$(find "$LOG_DIR" -name "mini-bowling-*.log" 2>/dev/null | sort -r | head -1)
+        if [[ -n "$latest_log" && -f "$latest_log" ]]; then
+            echo "  File: $latest_log"
+            echo
+            tail -50 "$latest_log" 2>/dev/null | sed 's/^/  /'
+        else
+            echo "  No log files found"
+        fi
+        echo
+
+        echo "================================================================"
+        echo "  End of report"
+        echo "================================================================"
+
+    } > "$report_file"
+
+    echo -e "${GREEN}✓ Report saved:${NC} $report_file"
+    echo "  Size: $(du -h "$report_file" | cut -f1)"
+    echo
+    echo "View with: less \"$report_file\""
+
+    # Prune reports older than 30 days
+    find "$report_dir" -name "mini-bowling-report-*.txt" -mtime +30 -delete 2>/dev/null || true
+}
+
 system_check() {
     # Quick "ready to bowl?" check — green or red, no verbose output
     local fail=0 warn=0
     local lines=()
 
     _ok()   { lines+=("  ${GREEN}✓${NC}  $*"); }
-    _fail() { lines+=("  ${RED}✗${NC}  $*"); (( fail++ )); }
-    _warn() { lines+=("  ${YELLOW}!${NC}  $*"); (( warn++ )); }
+    _fail() { lines+=("  ${RED}✗${NC}  $*"); (( ++fail )); }
+    _warn() { lines+=("  ${YELLOW}!${NC}  $*"); (( ++warn )); }
 
     # 1. Arduino-cli
     command -v arduino-cli >/dev/null 2>&1 && _ok "arduino-cli installed" || _fail "arduino-cli NOT found — run: install cli"
+
+    # 1b. Arduino core
+    if command -v arduino-cli >/dev/null 2>&1; then
+        arduino_core_installed && _ok "Arduino core installed ($ARDUINO_CORE)" || \
+            _fail "Arduino core missing ($ARDUINO_CORE) — run: arduino-cli core install $ARDUINO_CORE"
+    fi
 
     # 2. Project directory / git repo
     if [[ -d "$PROJECT_DIR/.git" ]]; then
@@ -2257,7 +2488,11 @@ system_cron() {
         elif echo "$line" | grep -q "# mini-bowling os-updates"; then
             desc="OS updates  (daily at ${time_str} — pi update)"
         elif echo "$line" | grep -q "# mini-bowling scoremore-update"; then
-            desc="ScoreMore update check  (daily at ${time_str})"
+            if echo "$line" | grep -q "\-\-check-only"; then
+                desc="ScoreMore update check  (daily at ${time_str} — check only)"
+            else
+                desc="ScoreMore auto-update  (daily at ${time_str} — downloads + restarts if newer)"
+            fi
         elif echo "$line" | grep -q "# mini-bowling script-update"; then
             desc="Script update  (daily at ${time_str} — script update)"
         else
@@ -2292,6 +2527,20 @@ doctor() {
             all_ok=false
         fi
     done
+
+    echo
+    echo "Arduino core:"
+    if command -v arduino-cli >/dev/null 2>&1; then
+        if arduino_core_installed; then
+            printf "  ${GREEN}✓${NC}  %s installed\n" "$ARDUINO_CORE"
+        else
+            printf "  ${RED}✗${NC}  %s NOT installed\n" "$ARDUINO_CORE"
+            echo "     Fix: arduino-cli core install $ARDUINO_CORE"
+            all_ok=false
+        fi
+    else
+        printf "  ${YELLOW}-${NC}  skipped (arduino-cli not installed)\n"
+    fi
 
     echo
     # Optional but useful
@@ -2366,6 +2615,17 @@ preflight() {
     else
         echo -e "  ${RED}✗${NC}  arduino-cli not found — run: mini-bowling.sh install cli"
         all_ok=false
+    fi
+
+    # 1b. Arduino core installed
+    if command -v arduino-cli >/dev/null 2>&1; then
+        if arduino_core_installed; then
+            echo -e "  ${GREEN}✓${NC}  Arduino core installed: $ARDUINO_CORE"
+        else
+            echo -e "  ${RED}✗${NC}  Arduino core missing: $ARDUINO_CORE"
+            echo "     Run: arduino-cli core install $ARDUINO_CORE"
+            all_ok=false
+        fi
     fi
 
     # 2. Arduino port reachable
@@ -2452,13 +2712,9 @@ preflight() {
     if $quick; then
         echo -e "  ${YELLOW}-${NC}  ScoreMore update check skipped (--quick)"
     else
-        local sm_latest
-        sm_latest=$(curl --silent --fail --max-time 5 "https://www.scoremorebowling.com/download" 2>/dev/null | \
-            grep -oP "ScoreMore-\K[0-9]+\.[0-9]+(\.[0-9]+)?(?=-${ARCH}\.${EXTENSION})" | head -1 || true)
-        if [[ -z "$sm_latest" ]]; then
-            sm_latest=$(curl --silent --fail --max-time 5 "https://www.scoremorebowling.com/download" 2>/dev/null | \
-                grep -oP "ScoreMore \K[0-9]+\.[0-9]+(\.[0-9]+)?(?=,? Latest)" | head -1 || true)
-        fi
+        local sm_page sm_latest
+        sm_page=$(curl --silent --fail --max-time 5 "https://www.scoremorebowling.com/download" 2>/dev/null || true)
+        sm_latest=$(extract_scoremore_version "$sm_page")
         if [[ -n "$sm_latest" ]] && [[ -L "$SYMLINK_PATH" ]]; then
             local sm_installed
             sm_installed=$(basename "$(readlink -f "$SYMLINK_PATH" 2>/dev/null)" | \
@@ -2536,17 +2792,22 @@ install_setup() {
         echo -n "  Download latest version anyway? [y/N]: "
         read -r dl_answer
         if [[ "${dl_answer,,}" == "y" ]]; then
-            download_scoremore_version "$(
-                curl --silent --fail --max-time 10 "https://www.scoremorebowling.com/download" | \
-                grep -oP "ScoreMore-\K[0-9]+\.[0-9]+(\.[0-9]+)?(?=-${ARCH}\.${EXTENSION})" | head -1
-            )" || echo -e "  ${YELLOW}Warning: download failed — run 'mini-bowling.sh scoremore download latest' later${NC}"
+            local latest_page latest_ver
+            latest_page=$(curl --silent --fail --max-time 10 "https://www.scoremorebowling.com/download" || true)
+            latest_ver=$(extract_scoremore_version "$latest_page")
+            if [[ -n "$latest_ver" ]]; then
+                download_scoremore_version "$latest_ver" || \
+                    echo -e "  ${YELLOW}Warning: download failed — run 'mini-bowling.sh scoremore download latest' later${NC}"
+            else
+                echo -e "  ${YELLOW}Could not determine latest version — run 'mini-bowling.sh scoremore download latest' manually.${NC}"
+            fi
         fi
     else
         echo "  Downloading latest ScoreMore..."
-        local latest_ver
-        latest_ver=$(curl --silent --fail --max-time 10 \
-            "https://www.scoremorebowling.com/download" | \
-            grep -oP "ScoreMore-\K[0-9]+\.[0-9]+(\.[0-9]+)?(?=-${ARCH}\.${EXTENSION})" | head -1 || true)
+        local latest_page latest_ver
+        latest_page=$(curl --silent --fail --max-time 10 \
+            "https://www.scoremorebowling.com/download" || true)
+        latest_ver=$(extract_scoremore_version "$latest_page")
         if [[ -n "$latest_ver" ]]; then
             download_scoremore_version "$latest_ver" || \
                 echo -e "  ${YELLOW}Warning: download failed — run 'mini-bowling.sh scoremore download latest' later${NC}"
@@ -2820,6 +3081,8 @@ setup_os_updates_schedule() {
 setup_scoremore_update_schedule() {
     local subcmd="${1:-enable}"
     local time="${2:-03:30}"
+    # Optional third arg: --check-only (log only, don't auto-download)
+    local mode="${3:-}"
     local cron_marker="# mini-bowling scoremore-update"
     local script_path; script_path=$(_cron_script_path)
 
@@ -2833,12 +3096,20 @@ setup_scoremore_update_schedule() {
                 echo "ScoreMore update cron job already enabled — removing old entry first."
                 existing=$(echo "$existing" | grep -v "$cron_marker" || true)
             fi
-            local cron_job="$minute $hour * * * $script_path scoremore check-update >> $LOG_DIR/scoremore-update.log 2>&1 $cron_marker"
+            # Use scoremore update (auto-download+restart) by default;
+            # --check-only uses scoremore update --check-only (report only)
+            local sm_cmd="scoremore update"
+            [[ "$mode" == "--check-only" ]] && sm_cmd="scoremore update --check-only"
+            local cron_job="$minute $hour * * * $script_path $sm_cmd >> $LOG_DIR/scoremore-update.log 2>&1 $cron_marker"
             {
                 [[ -n "$existing" ]] && echo "$existing"
                 echo "$cron_job"
             } | crontab - || die "Failed to update crontab"
-            echo -e "${GREEN}✓ ScoreMore update check scheduled:${NC} daily at ${time}"
+            if [[ "$mode" == "--check-only" ]]; then
+                echo -e "${GREEN}✓ ScoreMore update check scheduled:${NC} daily at ${time} (check only — no auto-download)"
+            else
+                echo -e "${GREEN}✓ ScoreMore auto-update scheduled:${NC} daily at ${time} (downloads + restarts if newer version found)"
+            fi
             echo "  Log: $LOG_DIR/scoremore-update.log"
             echo "  Run 'mini-bowling.sh system scoremore-update disable' to remove."
             ;;
@@ -2923,6 +3194,7 @@ setup_script_update_schedule() {
 cmd_rollback() {
     require_git_repo
     require_arduino_cli
+    require_arduino_core
 
     local steps="${1:-1}"
     [[ "$steps" =~ ^[0-9]+$ ]] || die "Invalid step count: '$steps' — must be a number"
@@ -3008,12 +3280,7 @@ check_scoremore_update() {
         die "Could not reach scoremorebowling.com — is the network available?"
 
     local latest
-    latest=$(echo "$page" | grep -oP "ScoreMore-\K[0-9]+\.[0-9]+(\.[0-9]+)?(?=-${ARCH}\.${EXTENSION})" | head -1 || true)
-
-    # Fallback: parse the heading "ScoreMore X.Y, Latest Version"
-    if [[ -z "$latest" ]]; then
-        latest=$(echo "$page" | grep -oP "ScoreMore \K[0-9]+\.[0-9]+(\.[0-9]+)?(?=,? Latest)" | head -1 || true)
-    fi
+    latest=$(extract_scoremore_version "$page")
 
     if [[ -z "$latest" ]]; then
         die "Could not parse latest version from download page — page layout may have changed"
@@ -3045,6 +3312,66 @@ check_scoremore_update() {
         echo
         echo "Run: mini-bowling.sh scoremore download $latest"
     fi
+}
+
+scoremore_update() {
+    # Check for a newer ScoreMore version; download + restart if found.
+    # With --check-only: report but do not download (same as check-update).
+    local auto=true
+    [[ "${1:-}" == "--check-only" ]] && auto=false
+
+    echo "=== ScoreMore Update ==="
+    echo
+
+    echo "Checking scoremorebowling.com for latest version..."
+    local page
+    page=$(curl --silent --fail --max-time 10 \
+        "https://www.scoremorebowling.com/download") || \
+        die "Could not reach scoremorebowling.com — is the network available?"
+
+    local latest
+    latest=$(extract_scoremore_version "$page")
+    [[ -n "$latest" ]] || die "Could not parse latest version from download page"
+
+    local installed=""
+    if [[ -L "$SYMLINK_PATH" ]]; then
+        installed=$(basename "$(readlink -f "$SYMLINK_PATH" 2>/dev/null)" | \
+            sed -n "s/^ScoreMore-\\(.*\\)-${ARCH}\\.${EXTENSION}$/\\1/p")
+    fi
+
+    echo "Installed : ${installed:-none}"
+    echo "Latest    : $latest"
+    echo
+
+    if [[ -n "$installed" && "$latest" == "$installed" ]]; then
+        echo -e "${GREEN}✓ ScoreMore is already up to date${NC}"
+        return 0
+    fi
+
+    if ! $auto; then
+        echo -e "${YELLOW}→ Update available:${NC} ${installed:-none} → $latest"
+        echo "  Run: mini-bowling.sh scoremore update"
+        return 0
+    fi
+
+    echo -e "${YELLOW}→ Updating:${NC} ${installed:-none} → $latest"
+    echo
+
+    # Stop ScoreMore before downloading to avoid file-in-use issues
+    local was_running=false
+    if pgrep -f "ScoreMore.*AppImage" >/dev/null 2>&1; then
+        was_running=true
+        echo "Stopping ScoreMore..."
+        pkill -f "ScoreMore.*AppImage" 2>/dev/null || true
+        sleep 2
+    fi
+
+    download_scoremore_version "$latest"
+
+    echo
+    echo "Restarting ScoreMore..."
+    start_scoremore
+    echo -e "${GREEN}✓ ScoreMore updated to $latest${NC}"
 }
 
 # Item 3: check if remote has new commits without pulling
@@ -3656,7 +3983,7 @@ pi_cpu() {
     _read_cpu() {
         # Load averages
         local load1 load5 load15 procs
-        read -r load1 load5 load15 procs _ < /proc/loadavg 2>/dev/null || load1="-" load5="-" load15="-" procs="-"
+        IFS=' ' read -r load1 load5 load15 procs _ < /proc/loadavg 2>/dev/null || load1="-" load5="-" load15="-" procs="-"
         local ncpu
         ncpu=$(nproc 2>/dev/null || echo 1)
 
@@ -3667,7 +3994,7 @@ pi_cpu() {
         while IFS= read -r line; do
             [[ "$line" =~ ^cpu[0-9] ]] || continue
             local lbl u n s i wa hi si st
-            read -r lbl u n s i wa hi si st _ <<< "$line"
+            IFS=' ' read -r lbl u n s i wa hi si st _ <<< "$line"
             cores1+=("$lbl $((u+n+s+wa+hi+si+st)) $i")
             labels+=("$lbl")
         done < /proc/stat
@@ -3677,7 +4004,7 @@ pi_cpu() {
         while IFS= read -r line; do
             [[ "$line" =~ ^cpu[0-9] ]] || continue
             local lbl u n s i wa hi si st
-            read -r lbl u n s i wa hi si st _ <<< "$line"
+            IFS=' ' read -r lbl u n s i wa hi si st _ <<< "$line"
             local total2=$((u+n+s+wa+hi+si+st))
             local idle2=$i
             local prev="${cores1[$idx]:-}"
@@ -3688,7 +4015,7 @@ pi_cpu() {
             local pct=0
             (( dtotal > 0 )) && pct=$(( (dtotal - didle) * 100 / dtotal ))
             cpu_pct+=("$pct")
-            (( idx++ ))
+            (( ++idx ))
         done < /proc/stat
 
         # Color by load vs ncpu
@@ -3711,7 +4038,7 @@ pi_cpu() {
                 if (( b < bars )); then bar+="#"; else bar+="-"; fi
             done
             printf "  core%-2d  [${col}%-20s${NC}] %3d%%\n" "$i" "$bar" "$pct"
-            (( i++ ))
+            (( ++i ))
         done
 
         # Top processes by CPU
@@ -3787,8 +4114,7 @@ wifi_status() {
     if command -v iwconfig >/dev/null 2>&1; then
         local ssid signal
         ssid=$(iwconfig "$iface" 2>/dev/null | awk -F'"' '/ESSID/ {print $2}')
-        signal=$(iwconfig "$iface" 2>/dev/null | grep -oP 'Signal level=\K[^ ]+' 2>/dev/null || \
-                 iwconfig "$iface" 2>/dev/null | sed -n 's/.*Signal level=\([^ ]*\).*/\1/p')
+        signal=$(iwconfig "$iface" 2>/dev/null | sed -n 's/.*Signal level=\([^ ]*\).*/\1/p' | head -1)
         [[ -n "$ssid"   ]] && echo "SSID        : $ssid"
         [[ -n "$signal" ]] && echo "Signal      : $signal dBm"
     elif command -v iw >/dev/null 2>&1; then
@@ -4117,6 +4443,7 @@ Then re-run: mini-bowling.sh vnc-setup enable-autostart"
 install_cli() {
     if command -v arduino-cli >/dev/null 2>&1; then
         echo -e "${GREEN}arduino-cli is already installed:${NC} $(arduino-cli version --log-format short)"
+        install_arduino_core
         return 0
     fi
 
@@ -4155,6 +4482,8 @@ install_cli() {
         echo -e "${RED}Verification failed${NC} – please check the install output above"
         return 1
     fi
+
+    install_arduino_core
 }
 
 # Helper: execute a function in the context of a temporary git branch, then restore
@@ -4265,6 +4594,7 @@ Usage: mini-bowling.sh <command> [subcommand] [options]
 
   code                  Arduino code management
     code status                    Both git repos + Arduino board at a glance
+    code board                     Show detected boards (arduino-cli board list)
     code sketch upload [--Name]    Compile + upload sketch (default: Everything)
     code sketch upload --no-kill   Upload without killing ScoreMore first
     code sketch upload --branch <n>  Upload from a specific branch
@@ -4289,7 +4619,9 @@ Usage: mini-bowling.sh <command> [subcommand] [options]
     scoremore start                Launch ScoreMore
     scoremore stop                 Kill ScoreMore
     scoremore restart              Kill and relaunch ScoreMore
-    scoremore download <ver>       Download version (e.g. 1.8.0 or 'latest')
+    scoremore update               Check + download + restart if newer version available
+    scoremore update --check-only  Check only — do not download
+    scoremore download <ver>       Download specific version (e.g. 1.8.0 or 'latest')
     scoremore version              Show active version info
     scoremore check-update         Check scoremorebowling.com for newer version
     scoremore history              List downloaded versions
@@ -4344,6 +4676,7 @@ Usage: mini-bowling.sh <command> [subcommand] [options]
   system                System administration
     system check                   Quick ready-to-bowl check (green/red)
     system health                  Full system health dashboard
+    system report                  Generate timestamped report file (health + logs + deploys)
     system cron                    Show all mini-bowling cron jobs
     system doctor                  Check dependencies, directories, dialout group
     system preflight [--quick]     Pre-deploy checks
@@ -4531,11 +4864,13 @@ main() {
             "deploy              — pull + upload Everything + restart ScoreMore"
             "deploy --dry-run    — preview deploy without changes"
             "scoremore restart   — restart ScoreMore"
+            "scoremore update    — check + download + restart if newer version available"
             "scoremore start     — launch ScoreMore"
             "scoremore stop      — stop ScoreMore"
             "code sketch upload  — compile + upload Everything"
             "code sketch info    — show sketch on Arduino vs repo HEAD"
             "code status         — both git repos at a glance"
+            "code board          — show detected Arduino boards"
             "code pull           — pull latest Arduino code"
             "code console        — open interactive serial console"
             "code config         — open Arduino config tool in browser"
@@ -4545,6 +4880,7 @@ main() {
             "pi disk             — disk usage breakdown"
             "pi update           — run apt update + upgrade"
             "logs follow         — live tail today's log"
+            "system report       — generate timestamped system report file"
             "system cron         — show mini-bowling cron jobs"
             "system doctor       — check dependencies + dialout group"
             "system preflight    — pre-deploy checks"
@@ -4561,7 +4897,7 @@ main() {
         local i=1
         for item in "${_menu_items[@]}"; do
             printf "  %2d)  %s\n" "$i" "$item"
-            (( i++ ))
+            (( ++i ))
         done
         echo
         printf "Enter number (or press Enter to cancel): "
@@ -4578,7 +4914,7 @@ main() {
         local selected="${_menu_items[$(( choice - 1 ))]}"
         # Extract command part (before the ' — ' separator)
         local run_cmd
-        run_cmd=$(echo "$selected" | sed 's/  *— .*//')
+        run_cmd=$(echo "$selected" | sed 's/[[:space:]][[:space:]]*—.*//')
         run_cmd=$(echo "$run_cmd" | sed 's/^[[:space:]]*//')
 
         echo
@@ -4591,8 +4927,12 @@ main() {
         fi
 
         # Re-invoke with the selected command
-        # shellcheck disable=SC2086
-        exec "$0" $run_cmd
+        local -a run_argv=()
+        local old_ifs="$IFS"
+        IFS=' '
+        read -r -a run_argv <<< "$run_cmd"
+        IFS="$old_ifs"
+        exec "$0" "${run_argv[@]}"
     fi
 
     local cmd="$1"
@@ -4620,6 +4960,9 @@ main() {
             case "${2:-}" in
                 version|check-update|history|logs)
                     _log=false ;;
+                update)
+                    # scoremore update --check-only is read-only; bare update modifies state
+                    [[ "${3:-}" == "--check-only" ]] && _log=false ;;
                 watchdog)
                     [[ "${3:-}" == "status" ]] && _log=false ;;
             esac ;;
@@ -4634,7 +4977,7 @@ main() {
         code)
             # code branch list/check are read-only; code sketch list/compile are read-only
             case "${2:-}" in
-                status) _log=false ;;
+                status|board) _log=false ;;
                 branch)
                     case "${3:-}" in
                         list|check) _log=false ;;
@@ -4666,13 +5009,11 @@ main() {
     # Dispatch - if logging is active, pipe stdout to tee without exec redirects
     if [[ -n "${MINI_BOWLING_LOG:-}" ]] && ! $bypass_tee; then
         _dispatch "$cmd" "$@" | tee -a "$MINI_BOWLING_LOG"
-        local dispatch_exit="${PIPESTATUS[0]}"
     else
         _dispatch "$cmd" "$@"
-        local dispatch_exit=$?
     fi
 
-    [[ $dispatch_exit -eq 0 ]] && echo -e "${GREEN}Done.${NC}" || exit $dispatch_exit
+    echo -e "${GREEN}Done.${NC}"
 }
 
 _dispatch() {
@@ -4688,8 +5029,7 @@ _dispatch() {
             page=$(curl --silent --fail --max-time 10 \
                 "https://www.scoremorebowling.com/download") || \
                 die "Could not reach scoremorebowling.com — is the network available?"
-            ver=$(echo "$page" | grep -oP "ScoreMore-\K[0-9]+\.[0-9]+(\.[0-9]+)?(?=-${ARCH}\.${EXTENSION})" | head -1 || true)
-            [[ -z "$ver" ]] && ver=$(echo "$page" | grep -oP "ScoreMore \K[0-9]+\.[0-9]+(\.[0-9]+)?(?=,? Latest)" | head -1 || true)
+            ver=$(extract_scoremore_version "$page")
             [[ -n "$ver" ]] || die "Could not determine latest version from scoremorebowling.com"
             echo "Latest version: $ver" >&2
         fi
@@ -4904,6 +5244,7 @@ _dispatch() {
                     [[ "${1:-}" == --* ]] && sketch="${1#--}" && shift
                     require_project_dir
                     require_arduino_cli
+                    require_arduino_core
                     local sketch_path="${PROJECT_DIR}/${sketch}"
                     if [[ ! -d "$sketch_path" ]]; then
                         echo -e "${YELLOW}Folder not found:${NC} $sketch"
@@ -4934,6 +5275,11 @@ _dispatch() {
                     cmd_code_status
                     ;;
 
+                # code board --------------------------------------------------
+                board)
+                    cmd_code_board
+                    ;;
+
                 # code console ------------------------------------------------
                 console)
                     # Shorthand for: system serial console
@@ -4948,6 +5294,7 @@ _dispatch() {
                 *)
                     echo "code subcommands:"
                     echo "  code status                    both git repos + Arduino board at a glance"
+                    echo "  code board                     show detected Arduino boards (arduino-cli board list)"
                     echo "  code sketch upload [--Name] [--branch <n>] [--no-kill]"
                     echo "  code sketch list"
                     echo "  code sketch test [--Name]      compile only — no upload"
@@ -4983,6 +5330,7 @@ _dispatch() {
                     ;;
                 version)         scoremore_version ;;
                 check-update)    check_scoremore_update ;;
+                update)          scoremore_update "$@" ;;
                 history)         scoremore_history "$@" ;;
                 rollback)        rollback_scoremore ;;
                 autostart)
@@ -5017,7 +5365,7 @@ _dispatch() {
                     esac
                     ;;
                 *)
-                    die "Unknown scoremore subcommand: '$subcmd' — use: start, stop, restart, download, version, check-update, history, rollback, autostart, logs, watchdog"
+                    die "Unknown scoremore subcommand: '$subcmd' — use: start, stop, restart, download, version, update, check-update, history, rollback, autostart, logs, watchdog"
                     ;;
             esac
             ;;
@@ -5028,6 +5376,7 @@ _dispatch() {
             case "$subcmd" in
                 check)            system_check ;;
                 health)           system_health ;;
+                report)           system_report ;;
                 cron)             system_cron ;;
                 os-updates)       setup_os_updates_schedule "${1:-enable}" "${2:-}" ;;
                 scoremore-update) setup_scoremore_update_schedule "${1:-enable}" "${2:-}" ;;
@@ -5071,6 +5420,7 @@ _dispatch() {
                     echo "system subcommands:"
                     echo "  check                   quick ready-to-bowl check (green/red)"
                     echo "  health                  full system health dashboard"
+                    echo "  report                  generate timestamped report file"
                     echo "  cron                    show all mini-bowling cron jobs"
                     echo "  doctor                  check dependencies and dialout group"
                     echo "  preflight [--quick]     pre-deploy checks"

@@ -762,6 +762,21 @@ mini-bowling.sh pi disk                  # How full is the disk?
 
 ## Changelog
 
+### v4.8.0
+
+**Bug fixes**
+
+- `deploy history` stopped printing after the first matching entry under `set -e` — `(( count++ ))` returns exit status 1 when the counter starts at 0. Fixed with pre-increment `(( ++count ))`.
+- `system check` (`_fail` / `_warn` helpers) aborted after the first warning or failure for the same reason — `(( fail++ ))` / `(( warn++ ))` from zero exits under `set -e`. Health summary was never printed. Fixed with `(( ++fail ))` / `(( ++warn ))`.
+- `pi cpu` per-core bar graph and index counter had the same post-increment-from-zero bug in two places (`idx`, `i`). CPU reporting could terminate silently on the first core.
+- `pi cpu` produced wrong load averages and all-zero CPU percentages on any system with the global `IFS=$'\n\t'` in effect — `read` from `/proc/loadavg` and `/proc/stat` does not split on spaces with that IFS, so all values collapsed into the first variable. Added `IFS=' '` prefix to both `read` calls.
+- Interactive menu dispatch used `sed 's/  *— .*//'` to extract the command from a menu entry. The em-dash (`—`) pattern is not locale-safe; on some Pi configurations the byte sequence mismatches and the entire description string (including the em dash) is passed as arguments to `exec`, causing the re-invoked command to fail. Changed to `sed 's/[[:space:]][[:space:]]*—.*//'`.
+- `scoremore download` called `cd "$SCOREMORE_DIR"` as a bare command, permanently changing the working directory for the whole process. Any command that ran after a download in the same invocation (e.g. `code sketch list`) would silently operate in the wrong directory. The `cd` is removed; all file paths now use the absolute `$SCOREMORE_DIR/$filename`.
+- `list_available_sketches` used `find .` and relied on the `cd` side effect from `require_project_dir`. Changed to `find "$PROJECT_DIR"` for explicitness and to remove the implicit dependency.
+- `main` captured `PIPESTATUS[0]` from the logging pipeline to detect dispatch failures, but `set -eo pipefail` means failures exit immediately — the capture line is unreachable on failure and always 0 on success. Removed the dead variable; `set -e` now handles failures naturally.
+
+---
+
 ### v4.6.0
 
 New commands:

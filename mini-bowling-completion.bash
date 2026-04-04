@@ -78,13 +78,13 @@ _mini_bowling_complete() {
         case "$cmd" in
             status)   COMPREPLY=( $(compgen -W "--watch -w" -- "$cur") ) ;;
             deploy)   COMPREPLY=( $(compgen -W "--dry-run --no-kill --branch schedule unschedule history" -- "$cur") ) ;;
-            code)     COMPREPLY=( $(compgen -W "status sketch branch compile pull switch console config" -- "$cur") ) ;;
+            code)     COMPREPLY=( $(compgen -W "status board sketch branch compile pull switch console config" -- "$cur") ) ;;
             install)  COMPREPLY=( $(compgen -W "setup create-dir cli" -- "$cur") ) ;;
             script)   COMPREPLY=( $(compgen -W "version update" -- "$cur") ) ;;
-            scoremore) COMPREPLY=( $(compgen -W "start stop restart download version check-update history rollback autostart remove-autostart logs watchdog" -- "$cur") ) ;;
+            scoremore) COMPREPLY=( $(compgen -W "start stop restart download version update check-update history rollback autostart remove-autostart logs watchdog" -- "$cur") ) ;;
             pi)       COMPREPLY=( $(compgen -W "status sysinfo cpu temp disk update reboot shutdown wifi vnc" -- "$cur") ) ;;
             logs)     COMPREPLY=( $(compgen -W "follow dump tail clean" -- "$cur") ) ;;
-            system)   COMPREPLY=( $(compgen -W "check health cron doctor preflight backup repair cleanup ports tail-all wait-for-network serial watchdog os-updates scoremore-update script-update" -- "$cur") ) ;;
+            system)   COMPREPLY=( $(compgen -W "check health report cron doctor preflight backup repair cleanup ports tail-all wait-for-network serial watchdog os-updates scoremore-update script-update" -- "$cur") ) ;;
         esac
         return 0
     fi
@@ -125,6 +125,7 @@ _mini_bowling_complete() {
             scoremore)
                 case "$sub" in
                     download)  COMPREPLY=( $(compgen -W "latest $(_mb_sm_versions)" -- "$cur") ) ;;
+                    update)    COMPREPLY=( $(compgen -W "--check-only" -- "$cur") ) ;;
                     history)   COMPREPLY=( $(compgen -W "list use clean" -- "$cur") ) ;;
                     logs)      COMPREPLY=( $(compgen -W "show list tail dump" -- "$cur") ) ;;
                     autostart) COMPREPLY=( $(compgen -W "enable disable status" -- "$cur") ) ;;

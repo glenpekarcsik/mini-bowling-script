@@ -84,7 +84,7 @@ _mini_bowling_complete() {
             scoremore) COMPREPLY=( $(compgen -W "start stop restart download version update check-update history rollback autostart remove-autostart logs watchdog" -- "$cur") ) ;;
             pi)       COMPREPLY=( $(compgen -W "status sysinfo cpu temp disk update reboot shutdown wifi vnc" -- "$cur") ) ;;
             logs)     COMPREPLY=( $(compgen -W "follow dump tail clean" -- "$cur") ) ;;
-            system)   COMPREPLY=( $(compgen -W "check health report cron doctor preflight backup repair cleanup ports tail-all wait-for-network serial watchdog os-updates scoremore-update script-update" -- "$cur") ) ;;
+            system)   COMPREPLY=( $(compgen -W "check health report support cron doctor preflight backup repair cleanup ports tail-all wait-for-network serial watchdog os-updates scoremore-update script-update" -- "$cur") ) ;;
         esac
         return 0
     fi

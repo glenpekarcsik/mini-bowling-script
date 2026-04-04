@@ -19,7 +19,7 @@ IFS=$'\n\t'
 # ------------------------------------------------
 
 readonly DEFAULT_GIT_BRANCH="main"
-readonly SCRIPT_VERSION="4.8.0"
+readonly SCRIPT_VERSION="5.0.0"
 readonly SCRIPT_REPO="https://github.com/glenpekarcsik/mini-bowling-script.git"
 readonly PROJECT_REPO="https://github.com/mini-bowling/mini-bowling.git"
 readonly PROJECT_DIR="${MINI_BOWLING_DIR:-$HOME/Documents/Bowling/Arduino/mini-bowling}"
@@ -72,19 +72,13 @@ setup_logging() {
     export MINI_BOWLING_LOG="$log_file"
 }
 
-# Wrapper: run a command and tee its stdout to the log
-# Usage: log_run cmd arg1 arg2 ...
-log_run() {
-    if [[ -n "${MINI_BOWLING_LOG:-}" ]]; then
-        "$@" 2>&1 | tee -a "$MINI_BOWLING_LOG"
-        return "${PIPESTATUS[0]}"
-    else
-        "$@"
-    fi
-}
-
 prune_logs() {
     [[ -d "$LOG_DIR" ]] || return 0
+    # Skip if already pruned today — avoids a `find` on every logged command
+    local stamp="$LOG_DIR/.last-pruned"
+    if [[ -f "$stamp" ]] && [[ "$(date +%Y-%m-%d)" == "$(cat "$stamp" 2>/dev/null)" ]]; then
+        return 0
+    fi
     local pruned=0
     while IFS= read -r -d '' f; do
         rm -f -- "$f"
@@ -92,6 +86,7 @@ prune_logs() {
     done < <(find "$LOG_DIR" -maxdepth 1 -name "mini-bowling-*.log" \
                   -mtime +30 -print0 2>/dev/null)
     [[ $pruned -gt 0 ]] && echo "→ Pruned $pruned log file(s) older than 30 days" || true
+    date +%Y-%m-%d > "$stamp" 2>/dev/null || true
 }
 
 show_logs() {
@@ -312,7 +307,8 @@ deploy_history() {
 }
 
 require_project_dir() {
-    cd "$PROJECT_DIR" || die "Cannot cd to project directory: $PROJECT_DIR (does it exist?)"
+    [[ -d "$PROJECT_DIR" ]] || die "Project directory not found: $PROJECT_DIR
+  Run: mini-bowling.sh install setup"
 }
 
 require_git_repo() {
@@ -430,6 +426,29 @@ extract_scoremore_version() {
     echo "$version"
 }
 
+# Returns the version string of the currently installed ScoreMore AppImage
+# (resolved via the Desktop symlink). Prints nothing if not installed.
+get_installed_scoremore_version() {
+    [[ -L "$SYMLINK_PATH" ]] || return 0
+    basename "$(readlink -f "$SYMLINK_PATH" 2>/dev/null)" | \
+        sed -n "s/^ScoreMore-\\(.*\\)-${ARCH}\\.${EXTENSION}$/\\1/p"
+}
+
+# Reads $ARDUINO_STATUS_FILE and populates _ard_sketch, _ard_time,
+# _ard_commit, _ard_msg, _ard_branch.
+# Returns 1 (and clears the vars) if the file does not exist.
+_read_arduino_status() {
+    _ard_sketch="" _ard_time="" _ard_commit="" _ard_msg="" _ard_branch=""
+    [[ -f "$ARDUINO_STATUS_FILE" ]] || return 1
+    local _ard_lines
+    mapfile -t _ard_lines < "$ARDUINO_STATUS_FILE"
+    _ard_sketch="${_ard_lines[0]:-}"
+    _ard_time="${_ard_lines[1]:-}"
+    _ard_commit="${_ard_lines[2]:-}"
+    _ard_msg="${_ard_lines[3]:-}"
+    _ard_branch="${_ard_lines[4]:-}"
+}
+
 kill_scoremore_gracefully() {
     # Target the AppImage launcher by full path - killing the parent brings down
     # the entire Electron process tree that spawns under /tmp/.mount_ScoreM*/
@@ -482,16 +501,11 @@ print_status() {
     echo "Port        : $port"
     [[ -c "$port" ]] && echo "Arduino     : detected" || echo "Arduino     : NOT detected"
 
-    if [[ -f "$ARDUINO_STATUS_FILE" ]]; then
-        local ard_sketch ard_time ard_commit ard_msg
-        ard_sketch=$(sed -n '1p' "$ARDUINO_STATUS_FILE")
-        ard_time=$(sed -n '2p'   "$ARDUINO_STATUS_FILE")
-        ard_commit=$(sed -n '3p' "$ARDUINO_STATUS_FILE")
-        ard_msg=$(sed -n '4p'    "$ARDUINO_STATUS_FILE")
-        if [[ -n "$ard_msg" ]]; then
-            echo "Sketch      : $ard_sketch  ($ard_commit — $ard_msg)  @ $ard_time"
+    if _read_arduino_status; then
+        if [[ -n "$_ard_msg" ]]; then
+            echo "Sketch      : $_ard_sketch  ($_ard_commit — $_ard_msg)  @ $_ard_time"
         else
-            echo "Sketch      : $ard_sketch  ($ard_commit)  @ $ard_time"
+            echo "Sketch      : $_ard_sketch  ($_ard_commit)  @ $_ard_time"
         fi
     else
         echo "Sketch      : unknown (no upload recorded)"
@@ -524,11 +538,7 @@ print_status() {
 
     local sm_pid
     sm_pid=$(pgrep -f "ScoreMore.AppImage" 2>/dev/null | head -1 || true)
-    local sm_ver=""
-    if [[ -L "$SYMLINK_PATH" ]]; then
-        sm_ver=$(basename "$(readlink -f "$SYMLINK_PATH" 2>/dev/null)" | \
-            sed -n "s/^ScoreMore-\\(.*\\)-${ARCH}\\.${EXTENSION}$/\\1/p")
-    fi
+    local sm_ver; sm_ver=$(get_installed_scoremore_version)
     local sm_autostart="no autostart"
     [[ -f "$HOME/.config/autostart/scoremore.desktop" ]] && sm_autostart="autostart enabled"
 
@@ -847,9 +857,9 @@ list_available_sketches() {
 
     # Load last-upload record if available
     local last_sketch="" last_time=""
-    if [[ -f "$ARDUINO_STATUS_FILE" ]]; then
-        last_sketch=$(sed -n '1p' "$ARDUINO_STATUS_FILE")
-        last_time=$(sed -n '2p'   "$ARDUINO_STATUS_FILE")
+    if _read_arduino_status; then
+        last_sketch="$_ard_sketch"
+        last_time="$_ard_time"
     fi
 
     local count=0
@@ -907,18 +917,14 @@ cmd_sketch_info() {
     echo "=== Arduino Sketch Info ==="
     echo
 
-    if [[ ! -f "$ARDUINO_STATUS_FILE" ]]; then
+    if ! _read_arduino_status; then
         echo "No upload recorded yet."
         echo "  Run: mini-bowling.sh code sketch upload --Everything"
         return 0
     fi
 
-    local sketch time commit subject branch
-    sketch=$(sed -n '1p'  "$ARDUINO_STATUS_FILE")
-    time=$(sed -n '2p'    "$ARDUINO_STATUS_FILE")
-    commit=$(sed -n '3p'  "$ARDUINO_STATUS_FILE")
-    subject=$(sed -n '4p' "$ARDUINO_STATUS_FILE")
-    branch=$(sed -n '5p'  "$ARDUINO_STATUS_FILE")
+    local sketch="$_ard_sketch" time="$_ard_time" commit="$_ard_commit" \
+          subject="$_ard_msg" branch="$_ard_branch"
 
     echo "Sketch      : $sketch"
     echo "Uploaded at : $time"
@@ -1041,12 +1047,8 @@ cmd_code_status() {
     echo
 
     # Arduino sketch info
-    if [[ -f "$ARDUINO_STATUS_FILE" ]]; then
-        local sketch time commit branch
-        sketch=$(sed -n '1p' "$ARDUINO_STATUS_FILE")
-        time=$(sed -n '2p'   "$ARDUINO_STATUS_FILE")
-        commit=$(sed -n '3p' "$ARDUINO_STATUS_FILE")
-        branch=$(sed -n '5p' "$ARDUINO_STATUS_FILE")
+    if _read_arduino_status; then
+        local sketch="$_ard_sketch" time="$_ard_time" commit="$_ard_commit" branch="$_ard_branch"
         local current_branch head_commit
         current_branch=$(git -C "$PROJECT_DIR" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "unknown")
         head_commit=$(git -C "$PROJECT_DIR" rev-parse --short HEAD 2>/dev/null || echo "")
@@ -1610,12 +1612,8 @@ show_info() {
         echo -e "Arduino     : ${RED}NOT detected${NC}"
 
     # Sketch
-    if [[ -f "$ARDUINO_STATUS_FILE" ]]; then
-        local ard_sketch ard_time ard_commit
-        ard_sketch=$(sed -n '1p' "$ARDUINO_STATUS_FILE")
-        ard_time=$(sed -n '2p'   "$ARDUINO_STATUS_FILE")
-        ard_commit=$(sed -n '3p' "$ARDUINO_STATUS_FILE")
-        echo "Sketch      : $ard_sketch  ($ard_commit)  @ $ard_time"
+    if _read_arduino_status; then
+        echo "Sketch      : $_ard_sketch  ($_ard_commit)  @ $_ard_time"
     else
         echo "Sketch      : unknown"
     fi
@@ -1623,11 +1621,7 @@ show_info() {
     # -- ScoreMore -------------------------------------------------------------
     local sm_pid
     sm_pid=$(pgrep -f "ScoreMore.AppImage" 2>/dev/null | head -1 || true)
-    local sm_ver=""
-    if [[ -L "$SYMLINK_PATH" ]]; then
-        sm_ver=$(basename "$(readlink -f "$SYMLINK_PATH" 2>/dev/null)" | \
-            sed -n "s/^ScoreMore-\\(.*\\)-${ARCH}\\.${EXTENSION}$/\\1/p")
-    fi
+    local sm_ver; sm_ver=$(get_installed_scoremore_version)
     if [[ -n "$sm_pid" ]]; then
         echo -e "ScoreMore   : ${GREEN}running${NC} v${sm_ver:-?}  (pid $sm_pid)"
     else
@@ -1709,11 +1703,11 @@ tail_all() {
     echo "  [CMD] = command log  [ARD] = Arduino serial"
     echo "----------------------------------------"
 
-    # Tag each line with source, then sort by timestamp prefix if present
+    # Tag each line with source, then sort by timestamp (fields 2-3 after the tag)
     {
         $have_cmd    && tail -n "$n" "$cmd_log"         | sed 's/^/[CMD] /'
         $have_serial && tail -n "$n" "$serial_log_file" | sed 's/^/[ARD] /'
-    } | sort --stable -k1,1
+    } | sort --stable -k2,3
 
     echo
     echo "--- live tail (Ctrl+C to exit) ---"
@@ -1866,6 +1860,337 @@ ensure_directories() {
     mkdir -p -- "$PROJECT_DIR"   && echo "Project dir OK:  $PROJECT_DIR"
     mkdir -p -- "$SCOREMORE_DIR" && echo "ScoreMore dir OK: $SCOREMORE_DIR"
     mkdir -p -- "$LOG_DIR"       && echo "Log dir OK:      $LOG_DIR"
+}
+
+# -- support bundle ------------------------------------------------------------
+# Collect diagnostic info into a compressed archive for sharing with support
+support_bundle() {
+    local output_dir="$HOME/Documents/Bowling/support"
+    local timestamp; timestamp=$(date '+%Y-%m-%d_%H-%M-%S')
+    local bundle_name="mini-bowling-support-${timestamp}"
+    local bundle_dir="$output_dir/$bundle_name"
+    local archive="${bundle_dir}.tar.gz"
+
+    mkdir -p "$bundle_dir" || die "Cannot create support directory: $output_dir"
+
+    echo "=== Generating Support Bundle ==="
+    echo "  Collecting diagnostic information..."
+    echo
+
+    # ---- 1. info.txt — header ------------------------------------------------
+    {
+        echo "================================================================"
+        echo "  mini-bowling Support Bundle"
+        echo "  Generated : $(date '+%Y-%m-%d %H:%M:%S')"
+        echo "  Host      : $(hostname 2>/dev/null)"
+        echo "  Script    : mini-bowling.sh $SCRIPT_VERSION"
+        echo "================================================================"
+        echo
+        echo "Script path  : $(command -v mini-bowling.sh 2>/dev/null || realpath "$0")"
+        echo "Shell        : bash $BASH_VERSION"
+        echo
+        uname -a 2>/dev/null || true
+        echo
+        if [[ -f /etc/os-release ]]; then
+            cat /etc/os-release
+        fi
+    } > "$bundle_dir/info.txt"
+    echo "  → info.txt"
+
+    # ---- 2. status.txt — full status output ----------------------------------
+    {
+        echo "=== mini-bowling status ==="
+        echo
+        print_status 2>/dev/null || echo "(status failed)"
+    } > "$bundle_dir/status.txt"
+    echo "  → status.txt"
+
+    # ---- 3. system-check.txt — system readiness check -----------------------
+    {
+        system_check 2>&1 || true
+    } > "$bundle_dir/system-check.txt"
+    echo "  → system-check.txt"
+
+    # ---- 4. doctor.txt — dependency check ------------------------------------
+    {
+        doctor 2>&1 || true
+    } > "$bundle_dir/doctor.txt"
+    echo "  → doctor.txt"
+
+    # ---- 5. environment.txt — relevant env vars and key paths ---------------
+    {
+        echo "=== Environment Variables ==="
+        echo
+        printf "  %-22s %s\n" "USER"             "${USER:-}"
+        printf "  %-22s %s\n" "HOME"             "${HOME:-}"
+        printf "  %-22s %s\n" "DISPLAY"          "${DISPLAY:-<not set>}"
+        printf "  %-22s %s\n" "MINI_BOWLING_DIR" "${MINI_BOWLING_DIR:-<not set — using default>}"
+        printf "  %-22s %s\n" "PATH"             "$PATH"
+        echo
+        echo "=== Key Paths ==="
+        echo
+        for entry in \
+            "PROJECT_DIR:$PROJECT_DIR" \
+            "SCOREMORE_DIR:$SCOREMORE_DIR" \
+            "LOG_DIR:$LOG_DIR" \
+            "SYMLINK_PATH:$SYMLINK_PATH"; do
+            local lbl="${entry%%:*}" val="${entry#*:}"
+            if [[ -d "$val" ]]; then
+                printf "  %-20s %s  (directory)\n" "$lbl" "$val"
+            elif [[ -L "$val" ]]; then
+                local target; target=$(readlink "$val" 2>/dev/null || echo "?")
+                printf "  %-20s %s  (symlink → %s)\n" "$lbl" "$val" "$target"
+            elif [[ -f "$val" ]]; then
+                printf "  %-20s %s  (file)\n" "$lbl" "$val"
+            else
+                printf "  %-20s %s  (NOT FOUND)\n" "$lbl" "$val"
+            fi
+        done
+        echo
+        echo "=== File Permissions ==="
+        echo
+        for check_path in \
+            "$(command -v mini-bowling.sh 2>/dev/null || echo "$0")" \
+            "$SYMLINK_PATH" \
+            "$LOG_DIR" \
+            "$PROJECT_DIR"; do
+            [[ -e "$check_path" || -L "$check_path" ]] && \
+                ls -ld "$check_path" 2>/dev/null || true
+        done
+    } > "$bundle_dir/environment.txt"
+    echo "  → environment.txt"
+
+    # ---- 6. crontab.txt -------------------------------------------------------
+    {
+        echo "=== Crontab (user: ${USER:-$(id -un)}) ==="
+        echo
+        crontab -l 2>/dev/null || echo "(no crontab or access denied)"
+    } > "$bundle_dir/crontab.txt"
+    echo "  → crontab.txt"
+
+    # ---- 7. arduino.txt — arduino-cli version, cores, boards, status --------
+    {
+        echo "=== arduino-cli ==="
+        echo
+        if command -v arduino-cli >/dev/null 2>&1; then
+            echo "Version:"
+            arduino-cli version 2>/dev/null || echo "  (version failed)"
+            echo
+            echo "Installed cores:"
+            arduino-cli core list 2>/dev/null || echo "  (core list failed)"
+            echo
+            echo "Board list:"
+            arduino-cli board list 2>/dev/null || echo "  (board list failed)"
+        else
+            echo "  arduino-cli NOT FOUND in PATH"
+        fi
+        echo
+        echo "=== Arduino Upload Status File ==="
+        echo
+        if [[ -f "$ARDUINO_STATUS_FILE" ]]; then
+            cat "$ARDUINO_STATUS_FILE"
+        else
+            echo "(no upload recorded — $ARDUINO_STATUS_FILE not found)"
+        fi
+        echo
+        echo "=== Serial Port Devices ==="
+        echo
+        local found_port=false
+        for port_glob in /dev/ttyACM* /dev/ttyUSB* /dev/cu.usbmodem* /dev/serial/by-id/*; do
+            for f in $port_glob; do
+                if [[ -c "$f" ]]; then
+                    ls -la "$f" 2>/dev/null
+                    found_port=true
+                fi
+            done
+        done
+        $found_port || echo "  (no serial port devices found)"
+    } > "$bundle_dir/arduino.txt"
+    echo "  → arduino.txt"
+
+    # ---- 8. scoremore.txt — version, running state, AppImages, autostart ----
+    {
+        echo "=== ScoreMore ==="
+        echo
+        scoremore_version 2>/dev/null || echo "(no ScoreMore symlink)"
+        echo
+        echo "Running processes:"
+        if pgrep -f "ScoreMore.*AppImage" >/dev/null 2>&1; then
+            pgrep -af "ScoreMore.*AppImage" 2>/dev/null || \
+                pgrep -f "ScoreMore.*AppImage" 2>/dev/null
+        else
+            echo "  Not running"
+        fi
+        echo
+        echo "AppImages in $SCOREMORE_DIR:"
+        if [[ -d "$SCOREMORE_DIR" ]]; then
+            find "$SCOREMORE_DIR" -maxdepth 1 -name "*.AppImage" \
+                -exec ls -lh {} \; 2>/dev/null || echo "  (none found)"
+        else
+            echo "  Directory not found: $SCOREMORE_DIR"
+        fi
+        echo
+        echo "Autostart:"
+        local desktop_file="$HOME/.config/autostart/scoremore.desktop"
+        if [[ -f "$desktop_file" ]]; then
+            echo "  Enabled — $desktop_file"
+            cat "$desktop_file" 2>/dev/null
+        else
+            echo "  Not configured ($desktop_file not found)"
+        fi
+    } > "$bundle_dir/scoremore.txt"
+    echo "  → scoremore.txt"
+
+    # ---- 9. git.txt — recent commits and status for both repos ---------------
+    {
+        echo "=== Arduino Project Repo ($PROJECT_DIR) ==="
+        echo
+        if [[ -d "$PROJECT_DIR/.git" ]]; then
+            echo "Last 10 commits:"
+            git -C "$PROJECT_DIR" log --oneline -10 2>/dev/null || echo "  (log failed)"
+            echo
+            echo "Status:"
+            git -C "$PROJECT_DIR" status 2>/dev/null || echo "  (status failed)"
+            echo
+            echo "Remotes:"
+            git -C "$PROJECT_DIR" remote -v 2>/dev/null || echo "  (no remotes)"
+        else
+            echo "  NOT a git repository"
+        fi
+        echo
+        local script_dir
+        script_dir=$(dirname "$(realpath "${BASH_SOURCE[0]}" 2>/dev/null || echo "$0")")
+        echo "=== Script Repo ($script_dir) ==="
+        echo
+        if [[ -d "$script_dir/.git" ]]; then
+            git -C "$script_dir" log --oneline -5 2>/dev/null || echo "  (log failed)"
+        else
+            echo "  Not a git clone (installed as single file)"
+        fi
+    } > "$bundle_dir/git.txt"
+    echo "  → git.txt"
+
+    # ---- 10. dmesg-usb.txt — kernel USB/serial messages ----------------------
+    {
+        echo "=== dmesg — USB/Serial messages (last 100 matching lines) ==="
+        echo
+        dmesg 2>/dev/null | \
+            grep -iE "usb|acm|ttyACM|ttyUSB|serial|cdc|ch341|cp210" | \
+            tail -100 || \
+            echo "(dmesg not available or no USB messages found)"
+    } > "$bundle_dir/dmesg-usb.txt"
+    echo "  → dmesg-usb.txt"
+
+    # ---- 11. pi-health.txt — Pi vitals ----------------------------------------
+    {
+        echo "=== Raspberry Pi Health ==="
+        echo
+        echo "Uptime      : $(uptime 2>/dev/null || echo unavailable)"
+        if [[ -f /sys/class/thermal/thermal_zone0/temp ]]; then
+            local raw; raw=$(cat /sys/class/thermal/thermal_zone0/temp)
+            echo "CPU Temp    : $(( raw / 1000 ))°C"
+        else
+            echo "CPU Temp    : unavailable"
+        fi
+        echo
+        awk '/MemTotal/{t=$2} /MemAvailable/{a=$2} \
+             END{printf "Memory      : %d MB used of %d MB (%d%%)\n", \
+             (t-a)/1024, t/1024, (t-a)*100/t}' /proc/meminfo 2>/dev/null || true
+        df -h / 2>/dev/null | \
+            awk 'NR>1{printf "Disk (/)    : %s used of %s (%s)\n",$3,$2,$5}' || true
+        df -h "$HOME" 2>/dev/null | \
+            awk 'NR>1{printf "Disk (home) : %s used of %s (%s)\n",$3,$2,$5}' || true
+        echo
+        echo "Architecture: $(uname -m 2>/dev/null || echo unknown)"
+        local os_name
+        os_name=$(. /etc/os-release 2>/dev/null && echo "${PRETTY_NAME:-}" || echo "unknown")
+        echo "OS          : $os_name"
+    } > "$bundle_dir/pi-health.txt"
+    echo "  → pi-health.txt"
+
+    # ---- 12. deploy-status.txt -----------------------------------------------
+    {
+        echo "=== Deploy Status File ==="
+        echo
+        if [[ -f "$DEPLOY_STATUS_FILE" ]]; then
+            cat "$DEPLOY_STATUS_FILE"
+        else
+            echo "(no deploy status recorded — $DEPLOY_STATUS_FILE not found)"
+        fi
+    } > "$bundle_dir/deploy-status.txt"
+    echo "  → deploy-status.txt"
+
+    # ---- 13. logs/ — recent mini-bowling logs (last 7 days) ------------------
+    local logs_dir="$bundle_dir/logs"
+    mkdir -p "$logs_dir"
+    local log_count=0
+    if [[ -d "$LOG_DIR" ]]; then
+        while IFS= read -r -d '' f; do
+            cp -- "$f" "$logs_dir/" 2>/dev/null && log_count=$(( log_count + 1 ))
+        done < <(find "$LOG_DIR" -maxdepth 1 \
+            \( -name "mini-bowling-*.log" -o -name "arduino-serial-*.log" \
+               -o -name "os-update.log" -o -name "scoremore-update.log" \
+               -o -name "script-update.log" \) \
+            -mtime -7 -print0 2>/dev/null)
+    fi
+    echo "  → logs/ ($log_count file(s) from last 7 days)"
+
+    # ---- 14. scoremore-logs/ — ScoreMore app logs ----------------------------
+    local sm_log_dir=""
+    for candidate in \
+        "$HOME/.config/ScoreMore/logs" \
+        "$HOME/.config/scoremore/logs" \
+        "$HOME/.local/share/ScoreMore/logs" \
+        "$HOME/.local/share/scoremore/logs"; do
+        [[ -d "$candidate" ]] && { sm_log_dir="$candidate"; break; }
+    done
+    if [[ -n "$sm_log_dir" ]]; then
+        local sm_logs_dest="$bundle_dir/scoremore-logs"
+        mkdir -p "$sm_logs_dest"
+        local sm_count=0
+        while IFS= read -r -d '' f; do
+            cp -- "$f" "$sm_logs_dest/" 2>/dev/null && sm_count=$(( sm_count + 1 ))
+        done < <(find "$sm_log_dir" -maxdepth 2 -name "*.log" -mtime -7 -print0 2>/dev/null)
+        echo "  → scoremore-logs/ ($sm_count file(s) from $sm_log_dir)"
+    else
+        echo "  → scoremore-logs/ (ScoreMore log directory not found)"
+    fi
+
+    # ---- Package into tarball ------------------------------------------------
+    echo
+    echo -n "  Compressing bundle..."
+    tar -czf "$archive" -C "$output_dir" "$bundle_name" 2>/dev/null || \
+        die "Failed to create archive: $archive"
+    echo " done"
+
+    # Clean up uncompressed bundle directory
+    rm -rf -- "$bundle_dir"
+
+    echo
+    echo -e "${GREEN}✓ Support bundle created${NC}"
+    echo
+    echo "  Path : $archive"
+    echo "  Size : $(du -h "$archive" | cut -f1)"
+    echo
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo "  Share this file when reporting an issue:"
+    echo "  $archive"
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo
+    echo "  To list contents:  tar -tzf \"$archive\""
+    echo "  To extract:        tar -xzf \"$archive\""
+
+    # Keep only last 5 support bundles
+    local old_bundles
+    mapfile -t old_bundles < <(find "$output_dir" -maxdepth 1 \
+        -name "mini-bowling-support-*.tar.gz" 2>/dev/null | sort -r | tail -n +6)
+    if [[ ${#old_bundles[@]} -gt 0 ]]; then
+        for f in "${old_bundles[@]}"; do
+            rm -f -- "$f"
+        done
+        echo
+        echo "  (Pruned ${#old_bundles[@]} old support bundle(s) — keeping 5 most recent)"
+    fi
 }
 
 # Item 4: wait for network connectivity before proceeding (used by cron deploy)
@@ -2159,11 +2484,11 @@ system_report() {
 
         # --- Arduino ---
         echo "── Arduino ─────────────────────────────────────────────────────"
-        if [[ -f "$ARDUINO_STATUS_FILE" ]]; then
-            echo "  Sketch   : $(sed -n '1p' "$ARDUINO_STATUS_FILE")"
-            echo "  Uploaded : $(sed -n '2p' "$ARDUINO_STATUS_FILE")"
-            echo "  Commit   : $(sed -n '3p' "$ARDUINO_STATUS_FILE")"
-            echo "  Branch   : $(sed -n '5p' "$ARDUINO_STATUS_FILE")"
+        if _read_arduino_status; then
+            echo "  Sketch   : $_ard_sketch"
+            echo "  Uploaded : $_ard_time"
+            echo "  Commit   : $_ard_commit"
+            echo "  Branch   : $_ard_branch"
         else
             echo "  No upload on record"
         fi
@@ -2182,14 +2507,8 @@ system_report() {
         else
             echo "  Running  : no"
         fi
-        if [[ -L "$SYMLINK_PATH" ]]; then
-            local sm_ver
-            sm_ver=$(basename "$(readlink -f "$SYMLINK_PATH" 2>/dev/null)" | \
-                sed -n "s/^ScoreMore-\\(.*\\)-${ARCH}\\.${EXTENSION}$/\\1/p")
-            echo "  Version  : ${sm_ver:-unknown}"
-        else
-            echo "  Version  : no AppImage found"
-        fi
+        local sm_ver; sm_ver=$(get_installed_scoremore_version)
+        echo "  Version  : ${sm_ver:-no AppImage found}"
         local autostart_file="$HOME/.config/autostart/scoremore.desktop"
         echo "  Autostart: $([[ -f "$autostart_file" ]] && echo "enabled" || echo "disabled")"
         echo
@@ -2206,7 +2525,6 @@ system_report() {
 
         # --- Recent deploys ---
         echo "── Recent Deploys (last 10) ────────────────────────────────────"
-        local found=0
         for log_file in "$LOG_DIR"/mini-bowling-*.log; do
             [[ -f "$log_file" ]] || continue
             { grep -h "mini-bowling.sh deploy" "$log_file" || true; } | \
@@ -2284,11 +2602,10 @@ system_check() {
     fi
 
     # 5. Sketch uploaded
-    if [[ -f "$ARDUINO_STATUS_FILE" ]]; then
+    if _read_arduino_status; then
         local head_commit
         head_commit=$(git -C "$PROJECT_DIR" rev-parse --short HEAD 2>/dev/null || echo "")
-        local uploaded_commit; uploaded_commit=$(sed -n '3p' "$ARDUINO_STATUS_FILE")
-        if [[ "$head_commit" == "$uploaded_commit" ]]; then
+        if [[ "$head_commit" == "$_ard_commit" ]]; then
             _ok "Arduino up to date with repo HEAD"
         else
             _warn "Arduino behind repo HEAD — run: deploy"
@@ -2392,10 +2709,9 @@ system_health() {
     else
         echo -e "  ${RED}✗${NC}  ScoreMore is NOT running"
     fi
-    if [[ -L "$SYMLINK_PATH" && -f "$SYMLINK_PATH" ]]; then
-        local sm_ver; sm_ver=$(basename "$(readlink -f "$SYMLINK_PATH" 2>/dev/null)" | \
-            sed -n "s/^ScoreMore-\\(.*\\)-${ARCH}\\.${EXTENSION}$/\\1/p")
-        echo "     Version : ${sm_ver:-unknown}"
+    local sm_ver; sm_ver=$(get_installed_scoremore_version)
+    if [[ -n "$sm_ver" ]]; then
+        echo "     Version : $sm_ver"
     else
         echo -e "  ${YELLOW}!${NC}  No ScoreMore AppImage found at $SYMLINK_PATH"
     fi
@@ -2407,12 +2723,8 @@ system_health() {
 
     # 4. Arduino / sketch
     echo "── Arduino ───────────────────────────────────────────"
-    if [[ -f "$ARDUINO_STATUS_FILE" ]]; then
-        local sketch uploaded commit branch
-        sketch=$(  sed -n '1p' "$ARDUINO_STATUS_FILE")
-        uploaded=$(sed -n '2p' "$ARDUINO_STATUS_FILE")
-        commit=$(  sed -n '3p' "$ARDUINO_STATUS_FILE")
-        branch=$(  sed -n '5p' "$ARDUINO_STATUS_FILE")
+    if _read_arduino_status; then
+        local sketch="$_ard_sketch" uploaded="$_ard_time" commit="$_ard_commit" branch="$_ard_branch"
         echo "  Sketch    : $sketch"
         echo "  Uploaded  : $uploaded"
         echo "  Commit    : $commit  (branch: ${branch:-unknown})"
@@ -2715,17 +3027,15 @@ preflight() {
         local sm_page sm_latest
         sm_page=$(curl --silent --fail --max-time 5 "https://www.scoremorebowling.com/download" 2>/dev/null || true)
         sm_latest=$(extract_scoremore_version "$sm_page")
-        if [[ -n "$sm_latest" ]] && [[ -L "$SYMLINK_PATH" ]]; then
-            local sm_installed
-            sm_installed=$(basename "$(readlink -f "$SYMLINK_PATH" 2>/dev/null)" | \
-                sed -n "s/^ScoreMore-\\(.*\\)-${ARCH}\\.${EXTENSION}$/\\1/p")
-            if [[ "$sm_latest" == "$sm_installed" ]]; then
+        if [[ -n "$sm_latest" ]]; then
+            local sm_installed; sm_installed=$(get_installed_scoremore_version)
+            if [[ -n "$sm_installed" && "$sm_latest" == "$sm_installed" ]]; then
                 echo -e "  ${GREEN}✓${NC}  ScoreMore up to date ($sm_installed)"
-            else
+            elif [[ -n "$sm_installed" ]]; then
                 echo -e "  ${YELLOW}!${NC}  ScoreMore update available: $sm_installed → $sm_latest — run: mini-bowling.sh scoremore download $sm_latest"
+            else
+                echo -e "  ${YELLOW}!${NC}  ScoreMore latest: $sm_latest — run: mini-bowling.sh scoremore download $sm_latest"
             fi
-        elif [[ -n "$sm_latest" ]]; then
-            echo -e "  ${YELLOW}!${NC}  ScoreMore latest: $sm_latest — run: mini-bowling.sh scoremore download $sm_latest"
         fi
     fi
 
@@ -2785,9 +3095,7 @@ install_setup() {
     # Step 4: download ScoreMore
     echo "Step 4/9: Download ScoreMore"
     if [[ -L "$SYMLINK_PATH" ]] && [[ -f "$SYMLINK_PATH" ]]; then
-        local current_ver
-        current_ver=$(basename "$(readlink -f "$SYMLINK_PATH")" | \
-            sed -n "s/^ScoreMore-\\(.*\\)-${ARCH}\\.${EXTENSION}$/\\1/p")
+        local current_ver; current_ver=$(get_installed_scoremore_version)
         echo "  ScoreMore already installed: $current_ver"
         echo -n "  Download latest version anyway? [y/N]: "
         read -r dl_answer
@@ -3225,12 +3533,8 @@ cmd_rollback() {
 
     # Use the same sketch that was last uploaded, not a hardcoded name
     local sketch="Everything"
-    if [[ -f "$ARDUINO_STATUS_FILE" ]]; then
-        local recorded_sketch
-        recorded_sketch=$(sed -n '1p' "$ARDUINO_STATUS_FILE")
-        if [[ -n "$recorded_sketch" && -d "$PROJECT_DIR/$recorded_sketch" ]]; then
-            sketch="$recorded_sketch"
-        fi
+    if _read_arduino_status && [[ -n "$_ard_sketch" && -d "$PROJECT_DIR/$_ard_sketch" ]]; then
+        sketch="$_ard_sketch"
     fi
     echo "→ Uploading sketch: $sketch"
 
@@ -3289,12 +3593,7 @@ check_scoremore_update() {
     echo "Latest available : $latest"
 
     # Get currently installed version from symlink filename
-    local installed=""
-    if [[ -L "$SYMLINK_PATH" ]]; then
-        local target
-        target=$(readlink -f "$SYMLINK_PATH" 2>/dev/null || true)
-        installed=$(basename "$target" | sed -n "s/^ScoreMore-\\(.*\\)-${ARCH}\\.${EXTENSION}$/\\1/p")
-    fi
+    local installed; installed=$(get_installed_scoremore_version)
 
     if [[ -z "$installed" ]]; then
         echo "Installed        : none"
@@ -3333,11 +3632,7 @@ scoremore_update() {
     latest=$(extract_scoremore_version "$page")
     [[ -n "$latest" ]] || die "Could not parse latest version from download page"
 
-    local installed=""
-    if [[ -L "$SYMLINK_PATH" ]]; then
-        installed=$(basename "$(readlink -f "$SYMLINK_PATH" 2>/dev/null)" | \
-            sed -n "s/^ScoreMore-\\(.*\\)-${ARCH}\\.${EXTENSION}$/\\1/p")
-    fi
+    local installed; installed=$(get_installed_scoremore_version)
 
     echo "Installed : ${installed:-none}"
     echo "Latest    : $latest"
@@ -3362,15 +3657,23 @@ scoremore_update() {
     if pgrep -f "ScoreMore.*AppImage" >/dev/null 2>&1; then
         was_running=true
         echo "Stopping ScoreMore..."
-        pkill -f "ScoreMore.*AppImage" 2>/dev/null || true
-        sleep 2
+        kill_scoremore_gracefully
     fi
 
-    download_scoremore_version "$latest"
+    if ! download_scoremore_version "$latest"; then
+        echo -e "${RED}✗ Download failed${NC}"
+        if $was_running; then
+            echo "Restarting previous ScoreMore version..."
+            start_scoremore
+        fi
+        die "ScoreMore update failed"
+    fi
 
     echo
-    echo "Restarting ScoreMore..."
-    start_scoremore
+    if $was_running; then
+        echo "Restarting ScoreMore..."
+        start_scoremore
+    fi
     echo -e "${GREEN}✓ ScoreMore updated to $latest${NC}"
 }
 
@@ -4018,11 +4321,11 @@ pi_cpu() {
             (( ++idx ))
         done < /proc/stat
 
-        # Color by load vs ncpu
+        # Color by load vs ncpu (weakest threshold first so stronger wins)
         local color_load="$GREEN"
         local load_val; load_val=$(echo "$load1" | awk '{printf "%.2f", $1}')
-        (( $(echo "$load1 >= $ncpu" | bc -l 2>/dev/null || echo 0) )) && color_load="$RED"
         (( $(echo "$load1 >= $ncpu * 0.75" | bc -l 2>/dev/null || echo 0) )) && color_load="$YELLOW"
+        (( $(echo "$load1 >= $ncpu" | bc -l 2>/dev/null || echo 0) )) && color_load="$RED"
 
         echo -e "Load avg : ${color_load}${load1} ${load5} ${load15}${NC}  (${ncpu} core(s))"
         echo "Processes: $procs"
@@ -4677,6 +4980,7 @@ Usage: mini-bowling.sh <command> [subcommand] [options]
     system check                   Quick ready-to-bowl check (green/red)
     system health                  Full system health dashboard
     system report                  Generate timestamped report file (health + logs + deploys)
+    system support                 Generate compressed diagnostic bundle for sharing with support
     system cron                    Show all mini-bowling cron jobs
     system doctor                  Check dependencies, directories, dialout group
     system preflight [--quick]     Pre-deploy checks
@@ -4790,6 +5094,8 @@ system — System administration commands
 
   system check          Quick "ready to bowl?" — green if everything is OK
   system health         Full dashboard: deps, Pi vitals, ScoreMore, Arduino, cron
+  system report         Generate a timestamped report file (health + logs + deploys)
+  system support        Generate a compressed diagnostic bundle (.tar.gz) to share with support
   system cron           List mini-bowling cron jobs with descriptions
   system doctor         Full dependency + dialout + directory check
   system preflight      9-point pre-deploy verification (--quick skips network)
@@ -4803,6 +5109,7 @@ system — System administration commands
 
 Tip: run 'system check' before a bowling event to verify everything is ready.
 Tip: run 'system preflight' before a deploy to catch issues early.
+Tip: run 'system support' to generate a diagnostic bundle when reporting an issue.
 EOF
             ;;
         install)
@@ -4881,6 +5188,7 @@ main() {
             "pi update           — run apt update + upgrade"
             "logs follow         — live tail today's log"
             "system report       — generate timestamped system report file"
+            "system support      — generate diagnostic bundle for support"
             "system cron         — show mini-bowling cron jobs"
             "system doctor       — check dependencies + dialout group"
             "system preflight    — pre-deploy checks"
@@ -5377,6 +5685,7 @@ _dispatch() {
                 check)            system_check ;;
                 health)           system_health ;;
                 report)           system_report ;;
+                support)          support_bundle ;;
                 cron)             system_cron ;;
                 os-updates)       setup_os_updates_schedule "${1:-enable}" "${2:-}" ;;
                 scoremore-update) setup_scoremore_update_schedule "${1:-enable}" "${2:-}" ;;
@@ -5421,6 +5730,7 @@ _dispatch() {
                     echo "  check                   quick ready-to-bowl check (green/red)"
                     echo "  health                  full system health dashboard"
                     echo "  report                  generate timestamped report file"
+                    echo "  support                 generate compressed diagnostic bundle for support"
                     echo "  cron                    show all mini-bowling cron jobs"
                     echo "  doctor                  check dependencies and dialout group"
                     echo "  preflight [--quick]     pre-deploy checks"

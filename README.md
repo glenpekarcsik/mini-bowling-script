@@ -61,6 +61,8 @@ pi vnc status|start|stop|enable|disable   VNC management
 logs [follow|dump|tail|clean]  Log file management (--date YYYY-MM-DD for specific day)
 
 system health                  Full system health dashboard
+system report                  Generate timestamped report file
+system support                 Generate compressed diagnostic bundle for support
 system cron                    Show all mini-bowling cron jobs
 system doctor                  Check dependencies + dialout group
 system preflight [--quick]     9 pre-deploy checks
@@ -115,6 +117,7 @@ script version|update
 - Auto-repair of common broken states (`system repair`)
 - Serial port listing with USB vendor/product info (`system ports`)
 - Interleaved live tail of command log and Arduino serial log (`system tail-all`)
+- Support bundle — collects all diagnostic info into a single compressed `.tar.gz` for easy sharing when reporting issues (`system support`)
 
 **Raspberry Pi**
 - Pi health, OS updates, reboot, and shutdown — sudo checked upfront (`pi status|update|reboot|shutdown`)
@@ -270,6 +273,8 @@ Done.
 | `logs tail` | Last N lines of today's log | `[N]` \| `--date YYYY-MM-DD` | `mini-bowling.sh logs tail 100 --date 2026-03-06` |
 | `logs clean` | Delete log files (confirms first) | `--keep N` | `mini-bowling.sh logs clean --keep 7` |
 | `system health` | Full system health dashboard | — | `mini-bowling.sh system health` |
+| `system report` | Generate timestamped report file (health + logs + deploys) | — | `mini-bowling.sh system report` |
+| `system support` | Generate compressed diagnostic bundle for sharing with support | — | `mini-bowling.sh system support` |
 | `system cron` | Show all mini-bowling cron jobs | — | `mini-bowling.sh system cron` |
 | `system doctor` | Check dependencies + dialout group | — | `mini-bowling.sh system doctor` |
 | `system preflight` | 9 pre-deploy checks | `--quick` \| `-q` | `mini-bowling.sh system preflight --quick` |
@@ -384,6 +389,8 @@ mini-bowling.sh scoremore watchdog status
 # ── System ────────────────────────────────────────────────────────────────────
 
 mini-bowling.sh system health
+mini-bowling.sh system report
+mini-bowling.sh system support
 mini-bowling.sh system cron
 mini-bowling.sh system doctor
 mini-bowling.sh system preflight
@@ -696,7 +703,7 @@ mini-bowling.sh pi temp <TAB>
 →  --watch
 
 mini-bowling.sh system <TAB>
-→  health  cron  doctor  preflight  backup  repair  cleanup  ports  tail-all  serial  wait-for-network
+→  health  report  support  cron  doctor  preflight  backup  repair  cleanup  ports  tail-all  serial  wait-for-network
 
 mini-bowling.sh install <TAB>
 →  setup  create-dir  cli
@@ -758,9 +765,101 @@ mini-bowling.sh system tail-all          # Script log + Arduino log together
 mini-bowling.sh scoremore logs tail      # ScoreMore application logs
 mini-bowling.sh pi temp --watch          # Is the Pi running hot?
 mini-bowling.sh pi disk                  # How full is the disk?
+mini-bowling.sh system support           # Generate diagnostic bundle to share with support
+```
+
+## System Support Bundle
+
+When users report issues, `system support` collects all relevant diagnostic information into a single compressed archive for easy sharing.
+
+```bash
+mini-bowling.sh system support
+```
+
+The bundle is saved to `~/Documents/Bowling/support/mini-bowling-support-TIMESTAMP.tar.gz`. Output:
+
+```text
+=== Generating Support Bundle ===
+  Collecting diagnostic information...
+
+  → info.txt
+  → status.txt
+  → system-check.txt
+  → doctor.txt
+  → environment.txt
+  → crontab.txt
+  → arduino.txt
+  → scoremore.txt
+  → git.txt
+  → dmesg-usb.txt
+  → pi-health.txt
+  → deploy-status.txt
+  → logs/ (7 file(s) from last 7 days)
+  → scoremore-logs/ (2 file(s) from ~/.config/ScoreMore/logs)
+
+  Compressing bundle... done
+
+✓ Support bundle created
+
+  Path : /home/pi/Documents/Bowling/support/mini-bowling-support-2026-04-04_14-23-01.tar.gz
+  Size : 284K
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  Share this file when reporting an issue:
+  /home/pi/Documents/Bowling/support/mini-bowling-support-2026-04-04_14-23-01.tar.gz
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+```
+
+**Bundle contents:**
+
+| File | Contents |
+| --- | --- |
+| `info.txt` | Script version, hostname, OS details, `uname` output |
+| `status.txt` | Full `status` output |
+| `system-check.txt` | Ready-to-bowl check results |
+| `doctor.txt` | Dependency + dialout group check |
+| `environment.txt` | Key env vars, path existence, file permissions |
+| `crontab.txt` | User crontab |
+| `arduino.txt` | arduino-cli version, installed cores, board list, upload status, serial port devices |
+| `scoremore.txt` | Active version, running state, AppImages on disk, autostart config |
+| `git.txt` | Last 10 commits and status for both repos |
+| `dmesg-usb.txt` | Kernel USB/serial messages (connection issues) |
+| `pi-health.txt` | CPU temp, memory, disk, architecture, OS |
+| `deploy-status.txt` | Last deploy result file |
+| `logs/` | All mini-bowling log files from the last 7 days |
+| `scoremore-logs/` | ScoreMore application logs from the last 7 days |
+
+The 5 most recent bundles are kept automatically. To inspect a bundle without extracting:
+
+```bash
+tar -tzf mini-bowling-support-*.tar.gz
 ```
 
 ## Changelog
+
+### v5.0.0
+
+Internal refactors — no behaviour change:
+
+- Extracted `get_installed_scoremore_version()` helper — removes duplicate AppImage symlink → version parsing from `print_status` and `show_info`.
+- Extracted `_read_arduino_status()` helper — replaces four separate `sed -n 'Np'` blocks across `print_status`, `list_available_sketches`, `cmd_sketch_info`, and `cmd_code_status` with a single file-read function.
+- `prune_logs` now stamps once per day (`$LOG_DIR/.last-pruned`) so the `find` scan only runs once rather than on every logged command.
+- Removed unused `log_run` wrapper — the tee-to-log pattern was replaced by `$MINI_BOWLING_LOG` export in a prior version; `log_run` was dead code.
+- `require_project_dir` now prints an install hint (`Run: mini-bowling.sh install setup`) instead of a bare `cd` error.
+- `system tail-all` sort key corrected from `-k1,1` to `-k2,3` — the `[CMD]`/`[ARD]` tag prefix shifted the timestamp to fields 2–3, so the previous key sorted by tag instead of timestamp.
+
+---
+
+### v4.9.0
+
+**New command: `system support`**
+
+- Generates a compressed diagnostic bundle (`.tar.gz`) containing everything needed to diagnose a reported issue: script/system info, full `status` output, system check, dependency check, environment and key paths, crontab, arduino-cli version and board list, upload status, ScoreMore state, recent git logs, kernel USB/serial messages (`dmesg`), Pi health, deploy status, all log files from the last 7 days (mini-bowling + Arduino serial), and ScoreMore application logs.
+- Bundle is saved to `~/Documents/Bowling/support/` and the path is printed with a clear "share this file" message.
+- The 5 most recent bundles are kept automatically.
+- Wired into the interactive numbered menu, full help, per-command help, and tab completion (`system support`).
+
+---
 
 ### v4.8.0
 
@@ -908,7 +1007,7 @@ Major overhaul from the original v1.0.0 release.
 
 | Variable | Default | Description |
 |---|---|---|
-| `SCRIPT_VERSION` | `4.0.0` | Script version — bump when deploying updates |
+| `SCRIPT_VERSION` | `5.0.0` | Script version — bump when deploying updates |
 | `DEFAULT_GIT_BRANCH` | `main` | Branch used by `branch update` and `deploy` |
 | `PROJECT_DIR` | `~/Documents/Bowling/Arduino/mini-bowling` | Arduino sketch root (override with `$MINI_BOWLING_DIR`) |
 | `DEFAULT_PORT` | `/dev/ttyACM0` | Arduino serial port (override with `$PORT` at runtime) |
@@ -941,6 +1040,7 @@ PORT=/dev/ttyUSB0 mini-bowling.sh code sketch upload --Everything
 ~/Documents/Bowling/logs/arduino-serial-YYYY-MM-DD.log
 ~/Documents/Bowling/logs/.last-deploy-status
 ~/Documents/Bowling/backups/mini-bowling-backup-*.tar.gz
+~/Documents/Bowling/support/mini-bowling-support-*.tar.gz
 ./mini-bowling-test.sh                          ← unit test suite
 ./mini-bowling-completion.bash                  ← tab completion
 ```
